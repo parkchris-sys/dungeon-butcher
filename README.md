@@ -5,6 +5,8 @@
 **시작은 [CLAUDE.md](CLAUDE.md)부터** — 사람도 AI도 거기부터 읽는다.
 
 - 게임 방향: [docs/BIBLE.md](docs/BIBLE.md)
+- **현재 Phase 기획서: [docs/specs/PHASE1.md](docs/specs/PHASE1.md)** ← 오늘 할 일
+- 킥오프 안건: [docs/KICKOFF.md](docs/KICKOFF.md)
 - 미확정/결정 기록: [docs/DECISIONS.md](docs/DECISIONS.md)
 - 밸런스 수치: [docs/BALANCE.md](docs/BALANCE.md)
 - 에셋 목록·규약: [docs/ASSET_LIST.md](docs/ASSET_LIST.md)

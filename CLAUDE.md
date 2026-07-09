@@ -24,10 +24,11 @@ PDF·슬라이드·노션 등은 export물일 뿐, 원본이 아니다.
 
 ## 작업별 읽기 지도
 
+- **모든 파트 공통**: ① HANDOFF.md 최근 3개 항목 → ② **현재 Phase 기획서 `docs/specs/PHASE1.md`** — "오늘 뭘 하나"는 여기에 있다
 - **기획 작업** → BIBLE 전체 + DECISIONS + BALANCE
 - **아트 작업** → BIBLE §아트/§플레이어/§적 + ASSET_LIST (팔레트 HEX는 BIBLE에 있음)
 - **개발 작업** → BIBLE §루프/§전투/§MVP + BALANCE + HANDOFF 최신 항목
-- 어떤 작업이든 시작 전 **HANDOFF.md 최근 3개 항목**을 확인할 것
+- 회의/안건은 `docs/KICKOFF.md`
 
 ## 협업 플로우 (AI가 대신 수행)
 
