@@ -1,6 +1,7 @@
 library/
 temp/
 local/
+.creator/
 build/
 profiles/
 native/
