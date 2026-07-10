@@ -10,7 +10,7 @@ import { isoX, isoY } from './Projection';
 /** 밸런스 — BALANCE.md "Phase 1 임시 밸런스 v0.2 (2026-07-10)"의 복사본. 원본은 문서. */
 const BAL = {
     wave: { maxAlive: 18, batchMin: 3, batchMax: 4, intervalS: 2.0, rMin: 8, rMax: 11 },
-    slime: { hp: 2, speed: 1.3, contactR: 0.55, atk: 1, separationR: 0.6 }, // separationR: 몹끼리 최소 간격(타일, 임의)
+    slime: { hp: 2, speed: 1.3, contactR: 0.55, atk: 1, separationR: 0.9 }, // separationR: 몹끼리 최소 간격(타일, 임의)
     player: { maxHp: 10, invulnS: 0.6, hubRegen: 2 },      // invuln: 캐릭터 기준 전체 공유(확정), hubRegen: 마을 HP/s
     attack: { intervalS: 0.45, range: 1.8, knockback: 0.7 },
     meat: { dropChance: 0.6, dropMax: 2, pickupR: 0.9, flyS: 0.18, maxGround: 40 },
