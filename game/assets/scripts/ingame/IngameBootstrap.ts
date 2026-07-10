@@ -2,9 +2,12 @@ import {
     _decorator, Component, Node, Sprite, SpriteFrame, Texture2D, ImageAsset,
     UITransform, Color, Layers, input, Input, EventKeyboard, KeyCode, math,
     director, Canvas, Camera, DirectionalLight, view, ResolutionPolicy, Label, Widget,
+    resources, JsonAsset, Graphics, Vec2, Vec3, EventTouch, UIOpacity, Mask,
 } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY, screenToGrid } from './Projection';
-import { MapData, ZoneDef, DEV_MAP } from './MapData';
+import { MapData, ZoneDef, ZoneKind, DEV_MAP } from './MapData';
+import { parseTiledMap } from './TiledLoader';
+import { CombatSystem } from './CombatSystem';
 
 const { ccclass, property } = _decorator;
 
@@ -18,29 +21,63 @@ const { ccclass, property } = _decorator;
  */
 @ccclass('IngameBootstrap')
 export class IngameBootstrap extends Component {
-    @property({ tooltip: '뷰 줌(월드 스케일). 2026-07-10 뷰 검증에서 1.5로 확정' })
-    zoom = 1.5;
+    /**
+     * 뷰 줌(월드 스케일) — 코드 값이 원본 (인스펙터 노출 금지: 씬에 저장된 옛 값이 덮어쓰는 사고 방지).
+     * 1.5 = 팀 잠정 확정 (2026-07-10) — 웨이브(적 무리) 들어간 뒤 최종 확정 예정, 그때까지 −/＋ 패널 유지
+     */
+    private zoom = 1.5;
 
-    @property({ tooltip: '이동 속도(px/s, 화면 기준). TBD — 무게/운반 한계 기획과 연동, 결정 전까지 Z/X 튜닝 키 유지' })
+    @property({ tooltip: '기본 이동 속도(px/s, 화면 기준) — BALANCE v0.2: 500' })
     moveSpeed = 500;
+
+    /** 무게 페널티 — BALANCE v0.2: 스택 1개당 -20px/s (만재 10개 = 300px/s) */
+    private static readonly WEIGHT_PENALTY = 20;
+    private carryCount = 0; // CombatSystem이 onMeatCount로 갱신
 
     @property({ tooltip: '카메라 팔로우 부드러움(클수록 빠름)' })
     followSmooth = 10;
 
-    /** 맵 원천 — 지금은 코드(DEV_MAP), 이후 Tiled JSON 로더가 이 자리를 대체 */
+    /** 맵 원천 — 디자이너 Tiled JSON(resources/maps/ingame_map) 우선, 없으면 DEV_MAP */
     private map: MapData = DEV_MAP;
 
     private world!: Node;
     private player!: Node;
     private entities!: Node;
+    private ready = false; // 맵 로드 완료 전 update 가드
+    /** 존별 바닥 패턴 텍스처 (resources/maps/tiles/floor_<kind>.png — 없으면 틴트 폴백) */
+    private zoneFrames: Partial<Record<ZoneKind, SpriteFrame>> = {};
+    /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
+    private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
+    private playerSprite: Sprite | null = null;
+    private facing: 'left' | 'right' = 'right';
     private pressed = new Set<KeyCode>();
     private pgx = 0;  // 플레이어 그리드 좌표
     private pgy = 0;
     private currentZone: ZoneDef | null = null;
 
-    // 튜닝 HUD (뷰 검증용 — 확정되면 통째로 제거)
-    private hudLabel: Label | null = null;
-    private defaults = { zoom: 1, moveSpeed: 500 };
+    // 터치 조이스틱 (플로팅 — 누른 자리가 중심)
+    private joystick: Node | null = null;
+    private joyKnob: Node | null = null;
+    private touchOrigin = new Vec2();
+    private touchDir = new Vec2();
+
+    // 존 진입 배너
+    private bannerLabel: Label | null = null;
+    private bannerFade: UIOpacity | null = null;
+    private bannerTimer = 0;
+
+    // 현재 타일 하이라이트 (칸 단위 스냅)
+    private tileCursor: Node | null = null;
+
+    // 줌 조절 패널 (실기기 확정용 — 값 확정되면 제거)
+    private zoomPanel: Node | null = null;
+    private zoomLabel: Label | null = null;
+
+    // 던전 코어 (웨이브·자동공격·고기·스택)
+    private combat: CombatSystem | null = null;
+    private meatHud: Label | null = null;
+    private hpFill: Node | null = null;
+    private playerFlashT = 0;
 
     onLoad() {
         const canvas = this.ensureCanvas();
@@ -48,13 +85,66 @@ export class IngameBootstrap extends Component {
         if (this.node.parent !== canvas) {
             this.node.parent = canvas; // 컨텐츠를 Canvas 아래로 이동(어디에 붙였든 동작)
         }
+        if (!this.node.getComponent(UITransform)) {
+            this.node.addComponent(UITransform); // 터치 좌표 → 로컬 변환용
+        }
+        // 캔버스 전체를 채움 — 자식 HUD(줌 패널·배너)의 Widget 정렬 기준이 됨
+        const rootWidget = this.node.getComponent(Widget) ?? this.node.addComponent(Widget);
+        rootWidget.isAlignTop = rootWidget.isAlignBottom = true;
+        rootWidget.isAlignLeft = rootWidget.isAlignRight = true;
+        rootWidget.top = rootWidget.bottom = rootWidget.left = rootWidget.right = 0;
+        rootWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
+        // 디자이너 맵(Tiled JSON) 우선 로드 — 실패 시 DEV_MAP 폴백
+        resources.load('maps/ingame_map', JsonAsset, (err, asset) => {
+            if (!err && asset) {
+                const parsed = parseTiledMap(asset.json);
+                if (parsed) {
+                    this.map = parsed;
+                } else {
+                    console.warn('[IngameBootstrap] ingame_map.json 파싱 실패 — DEV_MAP 폴백');
+                }
+            } else {
+                console.warn('[IngameBootstrap] resources/maps/ingame_map.json 없음 — DEV_MAP 폴백');
+            }
+            this.loadZoneTextures(() => this.buildWorld());
+        });
+    }
+
+    /** 아트 텍스처 로드(바닥 패턴·플레이어) — 없는 것은 조용히 폴백 */
+    private loadZoneTextures(done: () => void) {
+        const jobs: [string, (f: SpriteFrame) => void][] = [
+            ['maps/tiles/floor_hub',    f => { this.zoneFrames.hub = f; }],
+            ['maps/tiles/floor_dungeon', f => { this.zoneFrames.dungeon = f; }],
+            ['chars/player_left',        f => { this.playerFrames.left = f; }],
+            ['chars/player_right',       f => { this.playerFrames.right = f; }],
+        ];
+        let pending = jobs.length;
+        for (const [path, assign] of jobs) {
+            resources.load(`${path}/texture`, Texture2D, (err, tex) => {
+                if (!err && tex) {
+                    const frame = new SpriteFrame();
+                    frame.texture = tex;
+                    frame.packable = false;
+                    assign(frame);
+                }
+                if (--pending === 0) done();
+            });
+        }
+    }
+
+    private buildWorld() {
         this.world = this.makeNode('World', this.node);
         this.world.setScale(this.zoom, this.zoom, 1);
 
         this.buildBackground(this.world);
         this.buildGround(this.world);
         this.buildZones(this.world);
+        this.buildWalls(this.world);
+
+        // 현재 타일 하이라이트 (디자인 목업식 — 칸 단위 스냅, 생고기 레드 틴트)
+        this.tileCursor = this.addSprite('TileCursor', this.world, this.diamondFrame(),
+            TILE_W, TILE_H, this.color('#C0503F', 100));
 
         this.entities = this.makeNode('Entities', this.world);
         this.buildProps(this.entities);
@@ -62,40 +152,256 @@ export class IngameBootstrap extends Component {
         this.pgx = this.map.playerSpawn.gx;
         this.pgy = this.map.playerSpawn.gy;
         this.player = this.buildPlayer(this.entities);
+        this.tileCursor!.setPosition(
+            isoX(Math.round(this.pgx), Math.round(this.pgy)),
+            isoY(Math.round(this.pgx), Math.round(this.pgy)), 0);
 
-        this.defaults = { zoom: this.zoom, moveSpeed: this.moveSpeed };
-        this.buildTuningHud();
+        this.buildZoneBanner();
+        this.buildJoystick();
+        this.buildZoomPanel();
+        this.buildMeatHud();
         this.detectZone();
         this.sortEntities();
+
+        this.combat = new CombatSystem({
+            entities: this.entities,
+            playerNode: () => this.player,
+            playerG: () => ({ gx: this.pgx, gy: this.pgy }),
+            facing: () => this.facing,
+            inDungeon: () => this.currentZone?.kind === 'dungeon',
+            inHub: () => this.currentZone?.kind === 'hub',
+            zoneKindAt: (gx, gy) => this.zoneKindAt(gx, gy),
+            hitsWall: (gx, gy) => this.hitsWall(gx, gy),
+            groundR: () => this.map.groundRadius,
+            ui: {
+                makeNode: (n, p) => this.makeNode(n, p),
+                addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
+                square: () => this.squareFrame(),
+                diamond: () => this.diamondFrame(),
+                color: (hex, a) => this.color(hex, a),
+            },
+            onMeatCount: (n, max) => {
+                this.carryCount = n; // 무게 페널티 반영
+                if (this.meatHud) this.meatHud.string = `고기 ${n}/${max}`;
+            },
+            onHp: (hp, max) => this.setHpBar(hp, max),
+            onPlayerHit: () => { this.playerFlashT = 0.15; },
+            onPlayerDeath: () => this.respawnPlayer(),
+        });
+        this.ready = true;
+    }
+
+    /** 존 종류 판정 (좌표 기준) — 몬스터 이동 제약·스폰 위치 검사용 */
+    private zoneKindAt(gx: number, gy: number): ZoneKind | null {
+        for (const z of this.map.zones) {
+            if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) return z.kind;
+        }
+        return null;
+    }
+
+    /** 죽음 → 마을 스폰 부활 (런 획득물 손실은 CombatSystem이 처리) */
+    private respawnPlayer() {
+        this.pgx = this.map.playerSpawn.gx;
+        this.pgy = this.map.playerSpawn.gy;
+        this.player.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
+        if (this.tileCursor) {
+            this.tileCursor.setPosition(
+                isoX(Math.round(this.pgx), Math.round(this.pgy)),
+                isoY(Math.round(this.pgx), Math.round(this.pgy)), 0);
+        }
+        this.detectZone();
+        // 사망 안내 배너
+        if (this.bannerLabel && this.bannerFade) {
+            this.bannerLabel.string = '고기를 모두 잃었다…';
+            this.bannerLabel.color = this.color('#C0503F');
+            this.bannerFade.opacity = 255;
+            this.bannerTimer = 2.2;
+        }
+    }
+
+    /** 고기 카운터 + HP 바 HUD (좌상단) — PHASE1 §10 월드-인 최소 HUD */
+    private buildMeatHud() {
+        const hud = this.makeNode('MeatHud', this.node);
+        const w = hud.addComponent(Widget);
+        w.isAlignTop = true; w.top = 80;
+        w.isAlignLeft = true; w.left = 40;
+        this.meatHud = hud.addComponent(Label);
+        this.meatHud.fontSize = 48;
+        this.meatHud.isBold = true;
+        this.meatHud.color = this.color('#F7EFD8');
+        this.meatHud.horizontalAlign = Label.HorizontalAlign.LEFT;
+
+        // HP 바 (고기 카운터 아래)
+        const bar = this.makeNode('HpBar', this.node);
+        const bw = bar.addComponent(Widget);
+        bw.isAlignTop = true; bw.top = 150;
+        bw.isAlignLeft = true; bw.left = 40;
+        bar.addComponent(UITransform).setContentSize(300, 26);
+        const bg = this.addSprite('Bg', bar, this.squareFrame(), 300, 26, this.color('#2A2230', 220));
+        bg.setPosition(150, 0, 0); // 좌측 기준 정렬
+        this.hpFill = this.addSprite('Fill', bar, this.squareFrame(), 292, 18, this.color('#C0503F'));
+        this.setHpBar(1, 1);
+    }
+
+    private setHpBar(hp: number, max: number) {
+        if (!this.hpFill) return;
+        const w = Math.max(0, 292 * (hp / max));
+        this.hpFill.getComponent(UITransform)!.setContentSize(w, 18);
+        this.hpFill.setPosition(4 + w / 2, 0, 0); // 왼쪽부터 줄어드는 바
+    }
+
+    // ── 존 진입 배너 (화면 상단 중앙, 떴다가 페이드아웃) ──
+    private buildZoneBanner() {
+        const bn = this.makeNode('ZoneBanner', this.node);
+        const w = bn.addComponent(Widget);
+        w.isAlignTop = true; w.top = 260;
+        w.isAlignHorizontalCenter = true;
+
+        this.bannerLabel = bn.addComponent(Label);
+        this.bannerLabel.fontSize = 72;
+        this.bannerLabel.lineHeight = 84;
+        this.bannerLabel.isBold = true;
+        this.bannerFade = bn.addComponent(UIOpacity);
+        this.bannerFade.opacity = 0;
+    }
+
+    private showZoneBanner(z: ZoneDef) {
+        if (!this.bannerLabel || !this.bannerFade) return;
+        this.bannerLabel.string = z.name;
+        this.bannerLabel.color = this.color(z.kind === 'dungeon' ? '#B9A6F0' : '#F2A93B');
+        this.bannerFade.opacity = 255;
+        this.bannerTimer = 1.8;
+    }
+
+    // ── 줌 조절 패널 (우상단 −/＋ 버튼 + 현재값 — 실기기 확정용) ──
+    private buildZoomPanel() {
+        const panel = this.makeNode('ZoomPanel', this.node);
+        this.zoomPanel = panel;
+        const w = panel.addComponent(Widget);
+        w.isAlignTop = true; w.top = 80;
+        w.isAlignRight = true; w.right = 40;
+        panel.addComponent(UITransform).setContentSize(340, 100);
+
+        const makeButton = (txt: string, x: number, delta: number) => {
+            const btn = this.addSprite(`zoom_btn_${txt}`, panel, this.squareFrame(),
+                100, 100, this.color('#2A2230', 210));
+            btn.setPosition(x, 0, 0);
+            const lbNode = this.makeNode('Label', btn);
+            const lb = lbNode.addComponent(Label);
+            lb.string = txt;
+            lb.fontSize = 60;
+            lb.isBold = true;
+            lb.color = this.color('#F7EFD8');
+            btn.on(Node.EventType.TOUCH_START, () => {
+                this.zoom = +math.clamp(this.zoom + delta, 0.8, 3.0).toFixed(1);
+                this.refreshZoomLabel();
+            });
+        };
+        makeButton('-', -120, -0.1);
+        makeButton('+', 120, +0.1);
+
+        const num = this.makeNode('ZoomValue', panel);
+        this.zoomLabel = num.addComponent(Label);
+        this.zoomLabel.fontSize = 44;
+        this.zoomLabel.isBold = true;
+        this.zoomLabel.color = this.color('#9FE870');
+        this.refreshZoomLabel();
+    }
+
+    private refreshZoomLabel() {
+        if (this.zoomLabel) this.zoomLabel.string = `x${this.zoom.toFixed(1)}`;
+    }
+
+    /** 줌 패널 위 터치인지 — 조이스틱 오작동 방지 */
+    private isOnZoomPanel(p: Vec2): boolean {
+        if (!this.zoomPanel) return false;
+        const pos = this.zoomPanel.position;
+        return Math.abs(p.x - pos.x) <= 200 && Math.abs(p.y - pos.y) <= 80;
+    }
+
+    // ── 터치 조이스틱 비주얼 (누른 자리에 링+노브) ──
+    private buildJoystick() {
+        this.joystick = this.makeNode('Joystick', this.node);
+        const base = this.makeNode('Base', this.joystick);
+        const gb = base.addComponent(Graphics);
+        gb.lineWidth = 4;
+        gb.strokeColor = this.color('#FFFFFF', 80);
+        gb.fillColor = this.color('#FFFFFF', 25);
+        gb.circle(0, 0, 110);
+        gb.fill();
+        gb.stroke();
+
+        this.joyKnob = this.makeNode('Knob', this.joystick);
+        const gk = this.joyKnob.addComponent(Graphics);
+        gk.fillColor = this.color('#FFFFFF', 120);
+        gk.circle(0, 0, 45);
+        gk.fill();
+
+        this.joystick.active = false;
     }
 
     onEnable() {
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
         input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
+        input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
+        input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+        input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+        input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
     }
     onDisable() {
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
         input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
+        input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
+        input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+        input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+        input.off(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
         this.pressed.clear();
     }
     private onKeyDown(e: EventKeyboard) {
         this.pressed.add(e.keyCode);
-        // 뷰 튜닝 키 (검증용): Q/E 줌, Z/X 속도, R 리셋
-        switch (e.keyCode) {
-            case KeyCode.KEY_Q: this.zoom = Math.max(0.4, +(this.zoom - 0.05).toFixed(2)); break;
-            case KeyCode.KEY_E: this.zoom = Math.min(2.0, +(this.zoom + 0.05).toFixed(2)); break;
-            case KeyCode.KEY_Z: this.moveSpeed = Math.max(100, this.moveSpeed - 50); break;
-            case KeyCode.KEY_X: this.moveSpeed = Math.min(1500, this.moveSpeed + 50); break;
-            case KeyCode.KEY_R:
-                this.zoom = this.defaults.zoom;
-                this.moveSpeed = this.defaults.moveSpeed;
-                break;
-        }
-        this.refreshTuningHud();
     }
     private onKeyUp(e: EventKeyboard) { this.pressed.delete(e.keyCode); }
 
+    // ── 터치 조이스틱 (모바일 조작 — 화면 아무 데나 눌러 드래그) ──
+    private uiPos(e: EventTouch): Vec2 {
+        const ui = e.getUILocation();
+        const local = this.node.getComponent(UITransform)!
+            .convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
+        return new Vec2(local.x, local.y);
+    }
+
+    private onTouchStart(e: EventTouch) {
+        if (!this.ready || !this.joystick) return;
+        const p = this.uiPos(e);
+        if (this.isOnZoomPanel(p)) return; // 줌 버튼 터치는 조이스틱으로 안 잡음
+        this.touchOrigin.set(p.x, p.y);
+        this.joystick.setPosition(p.x, p.y, 0);
+        this.joyKnob!.setPosition(0, 0, 0);
+        this.joystick.active = true;
+        this.touchDir.set(0, 0);
+    }
+
+    private onTouchMove(e: EventTouch) {
+        if (!this.joystick || !this.joystick.active) return;
+        const p = this.uiPos(e);
+        let dx = p.x - this.touchOrigin.x;
+        let dy = p.y - this.touchOrigin.y;
+        const len = Math.hypot(dx, dy);
+        const R = 80; // 노브 이동 반경
+        if (len > R) { dx = (dx / len) * R; dy = (dy / len) * R; }
+        this.joyKnob!.setPosition(dx, dy, 0);
+        // 데드존 15px — 미세 떨림 무시
+        if (len < 15) this.touchDir.set(0, 0);
+        else this.touchDir.set(dx, dy);
+    }
+
+    private onTouchEnd() {
+        if (this.joystick) this.joystick.active = false;
+        this.touchDir.set(0, 0);
+    }
+
     update(dt: number) {
+        if (!this.ready) return;
         // 화면 기준 입력 → 아이소 그리드 이동으로 역투영(WASD가 화면 상하좌우로 자연스럽게 느껴짐)
         let sx = 0, sy = 0;
         if (this.pressed.has(KeyCode.KEY_A) || this.pressed.has(KeyCode.ARROW_LEFT)) sx -= 1;
@@ -103,16 +409,51 @@ export class IngameBootstrap extends Component {
         if (this.pressed.has(KeyCode.KEY_S) || this.pressed.has(KeyCode.ARROW_DOWN)) sy -= 1;
         if (this.pressed.has(KeyCode.KEY_W) || this.pressed.has(KeyCode.ARROW_UP)) sy += 1;
 
+        // 터치 조이스틱이 잡혀 있으면 그쪽 우선 (방향 벡터 — 아래에서 정규화됨)
+        if (this.touchDir.x !== 0 || this.touchDir.y !== 0) {
+            sx = this.touchDir.x;
+            sy = this.touchDir.y;
+        }
+
+        // 존 진입 배너 페이드 (1초 유지 → 0.8초 페이드)
+        if (this.bannerTimer > 0 && this.bannerFade) {
+            this.bannerTimer -= dt;
+            this.bannerFade.opacity = 255 * math.clamp(this.bannerTimer / 0.8, 0, 1);
+        }
+
         if (sx !== 0 || sy !== 0) {
+            // 좌/우 바라보기 — 수평 입력 방향으로 스프라이트 전환 (수직 이동 시 유지)
+            const face: 'left' | 'right' | null = sx > 0.01 ? 'right' : sx < -0.01 ? 'left' : null;
+            if (face && face !== this.facing && this.playerFrames[face] && this.playerSprite) {
+                this.facing = face;
+                this.playerSprite.spriteFrame = this.playerFrames[face]!;
+            }
+
             const len = Math.hypot(sx, sy);
-            const step = (this.moveSpeed * dt) / len;
+            // 무게 페널티 — 스택이 쌓일수록 느려짐 (운반의 무게, C7 리스크 테이킹)
+            const speed = this.moveSpeed - IngameBootstrap.WEIGHT_PENALTY * this.carryCount;
+            const step = (speed * dt) / len;
             const d = screenToGrid(sx * step, sy * step);
-            const R = this.map.groundRadius;
-            this.pgx = math.clamp(this.pgx + d.gx, -R, R);
-            this.pgy = math.clamp(this.pgy + d.gy, -R, R);
+            this.tryMove(d.gx, d.gy);
             this.player.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
-            this.sortEntities();
+            if (this.tileCursor) {
+                const cx = Math.round(this.pgx), cy = Math.round(this.pgy);
+                this.tileCursor.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
+            }
             this.detectZone();
+        }
+
+        // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
+        if (this.combat) {
+            this.combat.update(dt);
+            this.sortEntities();
+        }
+
+        // 플레이어 피격 플래시 (붉게 번쩍)
+        if (this.playerFlashT > 0 && this.playerSprite) {
+            this.playerFlashT -= dt;
+            this.playerSprite.color = this.playerFlashT > 0
+                ? this.color('#FF6A5A') : this.color('#FFFFFF');
         }
 
         // 카메라 팔로우 — World를 옮겨 플레이어를 화면 중앙에 고정
@@ -144,29 +485,108 @@ export class IngameBootstrap extends Component {
         ground.setPosition(0, 0, 0);
     }
 
-    // ── 존 (그리드 정사각 → 화면 마름모 틴트, 존당 노드 1개) ──
+    // ── 존 (그리드 사각 → 화면 평행사변형) — 텍스처 있으면 마스킹 타일링, 없으면 틴트 ──
     private buildZones(parent: Node) {
         const zones = this.makeNode('Zones', parent);
-        for (const z of this.map.zones) {
-            const overlay = this.addSprite(`zone_${z.name}`, zones, this.diamondFrame(),
-                z.span * TILE_W, z.span * TILE_H, this.color(z.tint, 110));
-            overlay.setPosition(isoX(z.gx, z.gy), isoY(z.gx, z.gy), 0);
+        // 뒤 항목부터 그림 — 배열 앞쪽(판정 우선, 좁은 존)이 위에 올라오게
+        for (let i = this.map.zones.length - 1; i >= 0; i--) {
+            const z = this.map.zones[i];
+            const node = this.makeNode(`zone_${z.name}`, zones);
+            const corners: [number, number][] = [
+                [z.gx, z.gy], [z.gx + z.w, z.gy], [z.gx + z.w, z.gy + z.h], [z.gx, z.gy + z.h],
+            ].map(([gx, gy]) => [isoX(gx, gy), isoY(gx, gy)] as [number, number]);
+
+            const frame = this.zoneFrames[z.kind];
+            if (frame) {
+                // 존 모양(평행사변형) 스텐실 마스크 + 패턴 타일링 스프라이트
+                const mask = node.addComponent(Mask);
+                mask.type = Mask.Type.GRAPHICS_STENCIL;
+                const mg = node.getComponent(Graphics) ?? node.addComponent(Graphics);
+                mg.fillColor = this.color('#FFFFFF');
+                mg.moveTo(corners[0][0], corners[0][1]);
+                for (let c = 1; c < corners.length; c++) mg.lineTo(corners[c][0], corners[c][1]);
+                mg.close();
+                mg.fill();
+
+                // 패턴 위상을 전역(128×64 배수)에 스냅 — 존끼리 이음새 없이 이어짐
+                const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+                const minX = Math.floor(Math.min(...xs) / TILE_W) * TILE_W;
+                const maxX = Math.ceil(Math.max(...xs) / TILE_W) * TILE_W;
+                const minY = Math.floor(Math.min(...ys) / TILE_H) * TILE_H;
+                const maxY = Math.ceil(Math.max(...ys) / TILE_H) * TILE_H;
+
+                const tex = this.makeNode('Pattern', node);
+                tex.addComponent(UITransform).setContentSize(maxX - minX, maxY - minY);
+                const sprite = tex.addComponent(Sprite);
+                sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+                sprite.type = Sprite.Type.TILED;
+                sprite.spriteFrame = frame;
+                tex.setPosition((minX + maxX) / 2, (minY + maxY) / 2, 0);
+            } else {
+                // 폴백: 반투명 틴트 (텍스처 파일이 없을 때)
+                const g = node.addComponent(Graphics);
+                g.fillColor = this.color(z.tint, 110);
+                g.moveTo(corners[0][0], corners[0][1]);
+                for (let c = 1; c < corners.length; c++) g.lineTo(corners[c][0], corners[c][1]);
+                g.close();
+                g.fill();
+            }
         }
+    }
+
+    // ── 벽 충돌 (축 분리 이동 — 벽에 비스듬히 닿으면 미끄러짐) ──
+    private static readonly PLAYER_RADIUS = 0.35; // 그리드 단위 (임의)
+
+    private tryMove(dgx: number, dgy: number) {
+        const R = this.map.groundRadius;
+        const nx = math.clamp(this.pgx + dgx, -R, R);
+        if (!this.hitsWall(nx, this.pgy)) this.pgx = nx;
+        const ny = math.clamp(this.pgy + dgy, -R, R);
+        if (!this.hitsWall(this.pgx, ny)) this.pgy = ny;
+    }
+
+    private hitsWall(gx: number, gy: number): boolean {
+        const r = IngameBootstrap.PLAYER_RADIUS;
+        for (const w of this.map.walls) {
+            if (gx > w.gx - r && gx < w.gx + w.w + r &&
+                gy > w.gy - r && gy < w.gy + w.h + r) return true;
+        }
+        return false;
+    }
+
+    /** 벽 렌더링 — 전체 벽을 Graphics 노드 1개에 그림 */
+    private buildWalls(parent: Node) {
+        if (this.map.walls.length === 0) return;
+        const node = this.makeNode('Walls', parent);
+        const g = node.addComponent(Graphics);
+        g.fillColor = this.color('#5A3A26', 235);
+        g.strokeColor = this.color('#2A1F15', 255);
+        g.lineWidth = 3;
+        for (const w of this.map.walls) {
+            const corners: [number, number][] = [
+                [w.gx, w.gy], [w.gx + w.w, w.gy], [w.gx + w.w, w.gy + w.h], [w.gx, w.gy + w.h],
+            ].map(([gx, gy]) => [isoX(gx, gy), isoY(gx, gy)] as [number, number]);
+            g.moveTo(corners[0][0], corners[0][1]);
+            for (let c = 1; c < corners.length; c++) g.lineTo(corners[c][0], corners[c][1]);
+            g.close();
+        }
+        g.fill();
+        g.stroke();
     }
 
     /** 플레이어가 어느 존에 있는지 판정 — 이후 웨이브 스포너/BGM 트리거가 물릴 자리 */
     private detectZone() {
         let found: ZoneDef | null = null;
         for (const z of this.map.zones) {
-            const half = z.span / 2;
-            if (Math.abs(this.pgx - z.gx) <= half && Math.abs(this.pgy - z.gy) <= half) {
+            if (this.pgx >= z.gx && this.pgx <= z.gx + z.w &&
+                this.pgy >= z.gy && this.pgy <= z.gy + z.h) {
                 found = z;
                 break;
             }
         }
         if (found !== this.currentZone) {
             this.currentZone = found;
-            this.refreshTuningHud();
+            if (found) this.showZoneBanner(found);
         }
     }
 
@@ -194,16 +614,26 @@ export class IngameBootstrap extends Component {
         }
     }
 
+    /** 기본 캐릭터 크기 — C3 아트 레퍼런스 확정 (2026-07-10): 128×128 @ 1080×1920 */
+    private static readonly CHAR_PX = 128;
+
     // ── 플레이어(하얀 네모 + 발밑 그림자) ──
     private buildPlayer(parent: Node): Node {
+        const c = IngameBootstrap.CHAR_PX;
         const p = this.makeNode('Player', parent);
         p.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
 
-        const shadow = this.addSprite('Shadow', p, this.diamondFrame(), 56, 28, this.color('#000000', 90));
-        shadow.setPosition(0, 0, 0);
-
-        const body = this.addSprite('Body', p, this.squareFrame(), 44, 60, this.color('#FFFFFF'));
-        body.setPosition(0, 36, 0); // 발이 타일에 닿게 위로 올림
+        // 아트가 있으면 원화(높이 c 기준, 폭은 원본 비율), 없으면 흰 박스 폴백
+        const art = this.playerFrames[this.facing] ?? null;
+        let body: Node;
+        if (art) {
+            const w = c * (art.rect.width / art.rect.height);
+            body = this.addSprite('Body', p, art, w, c, this.color('#FFFFFF'));
+        } else {
+            body = this.addSprite('Body', p, this.squareFrame(), c, c, this.color('#FFFFFF'));
+        }
+        body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
+        this.playerSprite = body.getComponent(Sprite);
         return p;
     }
 
@@ -254,31 +684,6 @@ export class IngameBootstrap extends Component {
         return canvasNode;
     }
 
-    // ── 튜닝 HUD (뷰 검증용 — 값 확정되면 제거) ──
-    private buildTuningHud() {
-        const hud = this.makeNode('TuningHud', this.node); // world 밖 — 화면 고정
-        const w = hud.addComponent(Widget);
-        w.isAlignTop = true; w.top = 60;
-        w.isAlignLeft = true; w.left = 30;
-
-        this.hudLabel = hud.addComponent(Label);
-        this.hudLabel.fontSize = 34;
-        this.hudLabel.lineHeight = 46;
-        this.hudLabel.color = this.color('#9FE870');
-        this.hudLabel.horizontalAlign = Label.HorizontalAlign.LEFT;
-        this.hudLabel.verticalAlign = Label.VerticalAlign.TOP;
-        this.refreshTuningHud();
-    }
-
-    private refreshTuningHud() {
-        if (!this.hudLabel) return;
-        this.hudLabel.string =
-            `zoom ${this.zoom.toFixed(2)}  (Q-/E+)\n` +
-            `speed ${this.moveSpeed}  (Z-/X+)\n` +
-            `tile ${TILE_W}x${TILE_H}  ·  R reset\n` +
-            `zone: ${this.currentZone ? this.currentZone.name : '—'}`;
-    }
-
     // ── 노드/스프라이트 헬퍼 ──
     private makeNode(name: string, parent: Node): Node {
         const n = new Node(name);
@@ -316,7 +721,8 @@ export class IngameBootstrap extends Component {
     private floorPatternFrame(): SpriteFrame {
         if (!this._floorPattern) {
             const lw = 0.03; // 라인 두께 (임의)
-            this._floorPattern = this.makeFrame(TILE_W, TILE_H, (x, y) => {
+            // 캔버스 = 4×4셀(512×256) — TILED 반복 수를 줄여 네이티브 UI 버퍼 한도(에러 9004) 회피
+            this._floorPattern = this.makeFrame(TILE_W * 4, TILE_H * 4, (x, y) => {
                 const u = (x + 0.5) / TILE_W;
                 const v = (y + 0.5) / TILE_H;
                 const a = (u + v) % 1;
