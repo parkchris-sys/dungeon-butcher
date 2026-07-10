@@ -10,7 +10,7 @@ import { isoX, isoY } from './Projection';
 /** 밸런스 — BALANCE.md "Phase 1 임시 밸런스 v0.2 (2026-07-10)"의 복사본. 원본은 문서. */
 const BAL = {
     wave: { maxAlive: 18, batchMin: 3, batchMax: 4, intervalS: 2.0, rMin: 8, rMax: 11 },
-    slime: { hp: 2, speed: 1.3, contactR: 0.55, atk: 1 },  // speed: 타일/초, atk: 접촉 데미지
+    slime: { hp: 2, speed: 1.3, contactR: 0.55, atk: 1, separationR: 0.6 }, // separationR: 몹끼리 최소 간격(타일, 임의)
     player: { maxHp: 10, invulnS: 0.6, hubRegen: 2 },      // invuln: 캐릭터 기준 전체 공유(확정), hubRegen: 마을 HP/s
     attack: { intervalS: 0.45, range: 1.8, knockback: 0.7 },
     meat: { dropChance: 0.6, dropMax: 2, pickupR: 0.9, flyS: 0.18, maxGround: 40 },
@@ -101,6 +101,7 @@ export class CombatSystem {
         this.time += dt;
         this.updateSpawn(dt);
         this.updateSlimes(dt);
+        this.separateSlimes();
         this.updateAttack(dt);
         this.updateMeat(dt);
         this.updateStack(dt);
@@ -229,6 +230,42 @@ export class CombatSystem {
         this.stackPieces = [];
         this.meatCount = 0;
         this.host.onMeatCount(0, BAL.stack.limit);
+    }
+
+    /** 몹끼리 겹침 방지 — 쌍별 밀어내기 (최대 18마리, O(n²) 충분) */
+    private separateSlimes() {
+        const minD = BAL.slime.separationR;
+        const list = this.slimes;
+        for (let i = 0; i < list.length; i++) {
+            const a = list[i];
+            if (a.dieT > 0) continue;
+            for (let j = i + 1; j < list.length; j++) {
+                const b = list[j];
+                if (b.dieT > 0) continue;
+                let dx = b.gx - a.gx, dy = b.gy - a.gy;
+                let d = Math.hypot(dx, dy);
+                if (d >= minD) continue;
+                if (d < 0.0001) { // 완전 겹침 — 결정적 방향으로 벌림
+                    const ang = (i * 2.399 + j) % (Math.PI * 2);
+                    dx = Math.cos(ang); dy = Math.sin(ang); d = 1;
+                }
+                const push = (minD - d) / 2;
+                const nx = (dx / d) * push, ny = (dy / d) * push;
+                // 벽·마을 존으로 밀려 들어가지 않게 각자 검사
+                if (!this.host.hitsWall(a.gx - nx, a.gy - ny) &&
+                    this.host.zoneKindAt(a.gx - nx, a.gy - ny) !== 'hub') {
+                    a.gx -= nx; a.gy -= ny;
+                }
+                if (!this.host.hitsWall(b.gx + nx, b.gy + ny) &&
+                    this.host.zoneKindAt(b.gx + nx, b.gy + ny) !== 'hub') {
+                    b.gx += nx; b.gy += ny;
+                }
+            }
+        }
+        for (const s of list) {
+            if (s.dieT > 0) continue;
+            s.node.setPosition(isoX(s.gx, s.gy), isoY(s.gx, s.gy), 0);
+        }
     }
 
     private releaseSlime(s: Slime) {
