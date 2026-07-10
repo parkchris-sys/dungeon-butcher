@@ -58,6 +58,7 @@ export class IngameBootstrap extends Component {
     // 터치 조이스틱 (플로팅 — 누른 자리가 중심)
     private joystick: Node | null = null;
     private joyKnob: Node | null = null;
+    private joyFade: UIOpacity | null = null; // active 토글 대신 투명도 — 네이티브에서 Graphics 렌더데이터 유지
     private touchOrigin = new Vec2();
     private touchDir = new Vec2();
 
@@ -337,7 +338,10 @@ export class IngameBootstrap extends Component {
         gk.circle(0, 0, 45);
         gk.fill();
 
-        this.joystick.active = false;
+        // active=false 대신 투명도로 숨김 — 네이티브(안드로이드)에서 비활성 노드의
+        // Graphics 렌더데이터가 유실돼 안 보이는 문제 회피
+        this.joyFade = this.joystick.addComponent(UIOpacity);
+        this.joyFade.opacity = 0;
     }
 
     onEnable() {
@@ -377,12 +381,12 @@ export class IngameBootstrap extends Component {
         this.touchOrigin.set(p.x, p.y);
         this.joystick.setPosition(p.x, p.y, 0);
         this.joyKnob!.setPosition(0, 0, 0);
-        this.joystick.active = true;
+        if (this.joyFade) this.joyFade.opacity = 255;
         this.touchDir.set(0, 0);
     }
 
     private onTouchMove(e: EventTouch) {
-        if (!this.joystick || !this.joystick.active) return;
+        if (!this.joystick || !this.joyFade || this.joyFade.opacity === 0) return;
         const p = this.uiPos(e);
         let dx = p.x - this.touchOrigin.x;
         let dy = p.y - this.touchOrigin.y;
@@ -396,7 +400,7 @@ export class IngameBootstrap extends Component {
     }
 
     private onTouchEnd() {
-        if (this.joystick) this.joystick.active = false;
+        if (this.joyFade) this.joyFade.opacity = 0;
         this.touchDir.set(0, 0);
     }
 
