@@ -64,6 +64,7 @@ export class IngameBootstrap extends Component {
     private joyFade: UIOpacity | null = null; // active 토글 대신 투명도 — 네이티브에서 Graphics 렌더데이터 유지
     private touchOrigin = new Vec2();
     private touchDir = new Vec2();
+    private touchMag = 0; // 아날로그 입력 세기 0~1 — 노브 변위 비례 (바깥 원 = 최고 속도)
 
     // 존 진입 배너
     private bannerLabel: Label | null = null;
@@ -386,6 +387,7 @@ export class IngameBootstrap extends Component {
         this.joyKnob!.setPosition(0, 0, 0);
         if (this.joyFade) this.joyFade.opacity = 255;
         this.touchDir.set(0, 0);
+        this.touchMag = 0;
     }
 
     private onTouchMove(e: EventTouch) {
@@ -395,16 +397,23 @@ export class IngameBootstrap extends Component {
         let dy = p.y - this.touchOrigin.y;
         const len = Math.hypot(dx, dy);
         const R = IngameBootstrap.JOY_TRAVEL;
+        const DEAD = IngameBootstrap.JOY_DEADZONE;
         if (len > R) { dx = (dx / len) * R; dy = (dy / len) * R; }
         this.joyKnob!.setPosition(dx, dy, 0);
-        // 데드존 — 미세 떨림 무시
-        if (len < IngameBootstrap.JOY_DEADZONE) this.touchDir.set(0, 0);
-        else this.touchDir.set(dx, dy);
+        if (len < DEAD) {
+            this.touchDir.set(0, 0);
+            this.touchMag = 0;
+        } else {
+            this.touchDir.set(dx, dy);
+            // 변위 비례 세기: 데드존 경계 0 → 바깥 원 1
+            this.touchMag = Math.min(1, (len - DEAD) / (R - DEAD));
+        }
     }
 
     private onTouchEnd() {
         if (this.joyFade) this.joyFade.opacity = 0;
         this.touchDir.set(0, 0);
+        this.touchMag = 0;
     }
 
     update(dt: number) {
@@ -416,10 +425,12 @@ export class IngameBootstrap extends Component {
         if (this.pressed.has(KeyCode.KEY_S) || this.pressed.has(KeyCode.ARROW_DOWN)) sy -= 1;
         if (this.pressed.has(KeyCode.KEY_W) || this.pressed.has(KeyCode.ARROW_UP)) sy += 1;
 
-        // 터치 조이스틱이 잡혀 있으면 그쪽 우선 (방향 벡터 — 아래에서 정규화됨)
+        // 터치 조이스틱이 잡혀 있으면 그쪽 우선 (아날로그 — 변위 비례 속도), 키보드는 항상 100%
+        let inputMag = 1;
         if (this.touchDir.x !== 0 || this.touchDir.y !== 0) {
             sx = this.touchDir.x;
             sy = this.touchDir.y;
+            inputMag = this.touchMag;
         }
 
         // 존 진입 배너 페이드 (1초 유지 → 0.8초 페이드)
@@ -438,7 +449,7 @@ export class IngameBootstrap extends Component {
 
             const len = Math.hypot(sx, sy);
             // 무게 페널티 — 스택이 쌓일수록 느려짐 (운반의 무게, C7 리스크 테이킹)
-            const speed = this.moveSpeed - IngameBootstrap.WEIGHT_PENALTY * this.carryCount;
+            const speed = (this.moveSpeed - IngameBootstrap.WEIGHT_PENALTY * this.carryCount) * inputMag;
             const step = (speed * dt) / len;
             const d = screenToGrid(sx * step, sy * step);
             this.tryMove(d.gx, d.gy);
