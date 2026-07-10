@@ -56,6 +56,9 @@ export class IngameBootstrap extends Component {
     private currentZone: ZoneDef | null = null;
 
     // 터치 조이스틱 (플로팅 — 누른 자리가 중심)
+    private static readonly JOY_RING_R = 220;   // 바깥 링 반지름 (감도 조절 이력: 110→220)
+    private static readonly JOY_TRAVEL = 160;   // 노브 최대 이동 반경 — 클수록 감도 완만
+    private static readonly JOY_DEADZONE = 20;
     private joystick: Node | null = null;
     private joyKnob: Node | null = null;
     private joyFade: UIOpacity | null = null; // active 토글 대신 투명도 — 네이티브에서 Graphics 렌더데이터 유지
@@ -328,7 +331,7 @@ export class IngameBootstrap extends Component {
         gb.lineWidth = 4;
         gb.strokeColor = this.color('#FFFFFF', 80);
         gb.fillColor = this.color('#FFFFFF', 25);
-        gb.circle(0, 0, 110);
+        gb.circle(0, 0, IngameBootstrap.JOY_RING_R);
         gb.fill();
         gb.stroke();
 
@@ -391,11 +394,11 @@ export class IngameBootstrap extends Component {
         let dx = p.x - this.touchOrigin.x;
         let dy = p.y - this.touchOrigin.y;
         const len = Math.hypot(dx, dy);
-        const R = 80; // 노브 이동 반경
+        const R = IngameBootstrap.JOY_TRAVEL;
         if (len > R) { dx = (dx / len) * R; dy = (dy / len) * R; }
         this.joyKnob!.setPosition(dx, dy, 0);
-        // 데드존 15px — 미세 떨림 무시
-        if (len < 15) this.touchDir.set(0, 0);
+        // 데드존 — 미세 떨림 무시
+        if (len < IngameBootstrap.JOY_DEADZONE) this.touchDir.set(0, 0);
         else this.touchDir.set(dx, dy);
     }
 
