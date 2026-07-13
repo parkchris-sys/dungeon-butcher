@@ -2,10 +2,14 @@ import {
     _decorator, Component, Node, Sprite, SpriteFrame, Texture2D, ImageAsset,
     UITransform, Color, Layers, input, Input, EventKeyboard, KeyCode, math,
     director, Canvas, Camera, DirectionalLight, view, ResolutionPolicy, Label, Widget,
-    resources, JsonAsset, Graphics, Vec2, Vec3, EventTouch, UIOpacity, Mask,
+    resources, JsonAsset, Graphics, Vec2, Vec3, EventTouch, UIOpacity,
 } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY, screenToGrid } from './Projection';
-import { MapData, ZoneDef, ZoneKind, DEV_MAP } from './MapData';
+import {
+    MapData, ZoneDef, ZoneKind, TileDef, DEV_MAP,
+    buildTileGrid, parseMapDataJson, TILE_ATTR_BLOCKED,
+} from './MapData';
+import { TileView } from './TileView';
 import { parseTiledMap } from './TiledLoader';
 import { CombatSystem } from './CombatSystem';
 
@@ -44,8 +48,9 @@ export class IngameBootstrap extends Component {
     private player!: Node;
     private entities!: Node;
     private ready = false; // 맵 로드 완료 전 update 가드
-    /** 존별 바닥 패턴 텍스처 (resources/maps/tiles/floor_<kind>.png — 없으면 틴트 폴백) */
-    private zoneFrames: Partial<Record<ZoneKind, SpriteFrame>> = {};
+    /** 가상화 타일 렌더러 + 타일 데이터 그리드 */
+    private tileView: TileView | null = null;
+    private tileGrid: TileDef[][] = [];
     /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
     private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
     private playerSprite: Sprite | null = null;
@@ -100,32 +105,53 @@ export class IngameBootstrap extends Component {
         rootWidget.top = rootWidget.bottom = rootWidget.left = rootWidget.right = 0;
         rootWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
-        // 디자이너 맵(Tiled JSON) 우선 로드 — 실패 시 DEV_MAP 폴백
-        resources.load('maps/ingame_map', JsonAsset, (err, asset) => {
+        // 맵 로드 체인: ① mapdata.json(편집 씬에서 내보낸 데이터) → ② Tiled JSON → ③ DEV_MAP
+        // (mapedit.scene은 에디터 전용 — 빌드에 미포함, 런타임 로드 없음)
+        resources.load('maps/mapdata', JsonAsset, (err, asset) => {
             if (!err && asset) {
-                const parsed = parseTiledMap(asset.json);
+                const parsed = parseMapDataJson(asset.json);
                 if (parsed) {
                     this.map = parsed;
-                } else {
-                    console.warn('[IngameBootstrap] ingame_map.json 파싱 실패 — DEV_MAP 폴백');
+                    this.loadZoneTextures(() => this.buildWorld());
+                    return;
                 }
+                console.warn('[IngameBootstrap] mapdata.json 파싱 실패 — Tiled 폴백');
             } else {
-                console.warn('[IngameBootstrap] resources/maps/ingame_map.json 없음 — DEV_MAP 폴백');
+                console.warn('[IngameBootstrap] mapdata.json 없음 — Tiled 폴백');
             }
-            this.loadZoneTextures(() => this.buildWorld());
+            resources.load('maps/ingame_map', JsonAsset, (err2, asset2) => {
+                if (!err2 && asset2) {
+                    const parsed = parseTiledMap(asset2.json);
+                    if (parsed) {
+                        this.map = parsed;
+                    } else {
+                        console.warn('[IngameBootstrap] ingame_map.json 파싱 실패 — DEV_MAP 폴백');
+                    }
+                } else {
+                    console.warn('[IngameBootstrap] resources/maps/ingame_map.json 없음 — DEV_MAP 폴백');
+                }
+                this.loadZoneTextures(() => this.buildWorld());
+            });
         });
     }
 
-    /** 아트 텍스처 로드(바닥 패턴·플레이어) — 없는 것은 조용히 폴백 */
+    /** img ID → 타일 이미지 프레임 */
+    private tileFrames = new Map<number, SpriteFrame>();
+
+    /**
+     * 아트 텍스처 로드 — 없는 것은 조용히 폴백.
+     * 타일은 maps/tiles 폴더 전체를 스캔해 파일명 규칙 `{ID}_{이름}.png`로 매핑
+     * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
+     */
     private loadZoneTextures(done: () => void) {
-        const jobs: [string, (f: SpriteFrame) => void][] = [
-            ['maps/tiles/floor_hub',    f => { this.zoneFrames.hub = f; }],
-            ['maps/tiles/floor_dungeon', f => { this.zoneFrames.dungeon = f; }],
-            ['chars/player_left',        f => { this.playerFrames.left = f; }],
-            ['chars/player_right',       f => { this.playerFrames.right = f; }],
+        let pending = 2; // 플레이어 잡 + 타일 폴더 스캔
+
+        const playerJobs: [string, (f: SpriteFrame) => void][] = [
+            ['chars/player_left',  f => { this.playerFrames.left = f; }],
+            ['chars/player_right', f => { this.playerFrames.right = f; }],
         ];
-        let pending = jobs.length;
-        for (const [path, assign] of jobs) {
+        let playerPending = playerJobs.length;
+        for (const [path, assign] of playerJobs) {
             resources.load(`${path}/texture`, Texture2D, (err, tex) => {
                 if (!err && tex) {
                     const frame = new SpriteFrame();
@@ -133,9 +159,25 @@ export class IngameBootstrap extends Component {
                     frame.packable = false;
                     assign(frame);
                 }
-                if (--pending === 0) done();
+                if (--playerPending === 0 && --pending === 0) done();
             });
         }
+
+        resources.loadDir('maps/tiles', ImageAsset, (err, images) => {
+            if (!err && images) {
+                for (const img of images) {
+                    const m = img.name.match(/^(\d+)_/); // {ID}_{이름}
+                    if (!m) continue;
+                    const tex = new Texture2D();
+                    tex.image = img;
+                    const frame = new SpriteFrame();
+                    frame.texture = tex;
+                    frame.packable = false;
+                    this.tileFrames.set(+m[1], frame);
+                }
+            }
+            if (--pending === 0) done();
+        });
     }
 
     private buildWorld() {
@@ -143,8 +185,15 @@ export class IngameBootstrap extends Component {
         this.world.setScale(this.zoom, this.zoom, 1);
 
         this.buildBackground(this.world);
-        this.buildGround(this.world);
-        this.buildZones(this.world);
+
+        // 가상화 타일 바닥 — 화면에 보이는 만큼만 노드 생성, 재사용
+        this.tileGrid = this.map.tiles ?? buildTileGrid(this.map);
+        const R = this.map.groundRadius;
+        this.tileView = new TileView(this.world, this.diamondFrame(), R, (gx, gy) => {
+            const row = this.tileGrid[gy + R];
+            return row ? row[gx + R] ?? null : null;
+        }, this.tileFrames);
+
         this.buildWalls(this.world);
 
         // 현재 타일 하이라이트 (디자인 목업식 — 칸 단위 스냅, 생고기 레드 틴트)
@@ -167,6 +216,7 @@ export class IngameBootstrap extends Component {
         this.buildMeatHud();
         this.detectZone();
         this.sortEntities();
+        this.tileView!.update(this.pgx, this.pgy, this.zoom); // 초기 타일 채우기
 
         this.combat = new CombatSystem({
             entities: this.entities,
@@ -196,12 +246,18 @@ export class IngameBootstrap extends Component {
         this.ready = true;
     }
 
-    /** 존 종류 판정 (좌표 기준) — 몬스터 이동 제약·스폰 위치 검사용 */
+    /** (gx,gy)가 밟고 있는 타일의 zone 속성값 (0=없음) — 존 판정의 원본은 타일 데이터 */
+    private zoneIndexAtTile(gx: number, gy: number): number {
+        const R = this.map.groundRadius;
+        const row = this.tileGrid[Math.round(gy) + R];
+        const t = row ? row[Math.round(gx) + R] : undefined;
+        return t ? t.zone : 0;
+    }
+
+    /** 존 종류 판정 — 타일의 zone 속성 기반 (몬스터 이동 제약·스폰 위치 검사용) */
     private zoneKindAt(gx: number, gy: number): ZoneKind | null {
-        for (const z of this.map.zones) {
-            if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) return z.kind;
-        }
-        return null;
+        const zi = this.zoneIndexAtTile(gx, gy);
+        return zi > 0 ? (this.map.zones[zi - 1]?.kind ?? null) : null;
     }
 
     /** 죽음 → 마을 스폰 부활 (런 획득물 손실은 CombatSystem이 처리) */
@@ -241,7 +297,12 @@ export class IngameBootstrap extends Component {
         const bw = bar.addComponent(Widget);
         bw.isAlignTop = true; bw.top = 150;
         bw.isAlignLeft = true; bw.left = 40;
-        bar.addComponent(UITransform).setContentSize(300, 26);
+        let barTran = bar.getComponent(UITransform);
+        if (!barTran) {
+            bar.addComponent(UITransform).setContentSize(300, 26);
+        } else {
+            barTran.setContentSize(300, 26);
+        }
         const bg = this.addSprite('Bg', bar, this.squareFrame(), 300, 26, this.color('#2A2230', 220));
         bg.setPosition(150, 0, 0); // 좌측 기준 정렬
         this.hpFill = this.addSprite('Fill', bar, this.squareFrame(), 292, 18, this.color('#C0503F'));
@@ -273,7 +334,9 @@ export class IngameBootstrap extends Component {
     private showZoneBanner(z: ZoneDef) {
         if (!this.bannerLabel || !this.bannerFade) return;
         this.bannerLabel.string = z.name;
-        this.bannerLabel.color = this.color(z.kind === 'dungeon' ? '#B9A6F0' : '#F2A93B');
+        const bannerColor = z.kind === 'dungeon' ? '#B9A6F0'
+            : z.kind === 'corridor' ? '#9FA6B0' : '#F2A93B';
+        this.bannerLabel.color = this.color(bannerColor);
         this.bannerFade.opacity = 255;
         this.bannerTimer = 1.8;
     }
@@ -285,7 +348,12 @@ export class IngameBootstrap extends Component {
         const w = panel.addComponent(Widget);
         w.isAlignTop = true; w.top = 80;
         w.isAlignRight = true; w.right = 40;
-        panel.addComponent(UITransform).setContentSize(340, 100);
+        let panelTran = panel.getComponent(UITransform);
+        if (!panelTran) {
+            panel.addComponent(UITransform).setContentSize(340, 100);
+        } else {
+            panelTran.setContentSize(340, 100);
+        }
 
         const makeButton = (txt: string, x: number, delta: number) => {
             const btn = this.addSprite(`zoom_btn_${txt}`, panel, this.squareFrame(),
@@ -461,6 +529,9 @@ export class IngameBootstrap extends Component {
             this.detectZone();
         }
 
+        // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
+        if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
+
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
             this.combat.update(dt);
@@ -484,72 +555,14 @@ export class IngameBootstrap extends Component {
         this.world.setPosition(math.lerp(p.x, targetX, t), math.lerp(p.y, targetY, t), 0);
     }
 
-    // ── 바닥 (노드 수 = 2 + 존 수 — 맵 크기와 무관) ──
+    // ── 배경 (맵 밖 여백판 — 바닥 자체는 TileView가 그림) ──
     private mapW() { return (this.map.groundRadius * 2 + 1) * TILE_W; }
     private mapH() { return (this.map.groundRadius * 2 + 1) * TILE_H; }
 
     private buildBackground(parent: Node) {
-        // 패턴의 투명한 그리드 라인 사이로 이 색이 비쳐 보인다
         const bg = this.addSprite('Background', parent, this.squareFrame(),
             this.mapW(), this.mapH(), this.color('#22222A'));
         bg.setPosition(0, 0, 0);
-    }
-
-    private buildGround(parent: Node) {
-        // 마름모 패턴 텍스처 1장을 TILED로 반복 — 맵이 커져도 Ground는 노드 1개
-        const ground = this.addSprite('Ground', parent, this.floorPatternFrame(),
-            this.mapW(), this.mapH(), this.color('#0B0B0E'));
-        ground.getComponent(Sprite)!.type = Sprite.Type.TILED;
-        ground.setPosition(0, 0, 0);
-    }
-
-    // ── 존 (그리드 사각 → 화면 평행사변형) — 텍스처 있으면 마스킹 타일링, 없으면 틴트 ──
-    private buildZones(parent: Node) {
-        const zones = this.makeNode('Zones', parent);
-        // 뒤 항목부터 그림 — 배열 앞쪽(판정 우선, 좁은 존)이 위에 올라오게
-        for (let i = this.map.zones.length - 1; i >= 0; i--) {
-            const z = this.map.zones[i];
-            const node = this.makeNode(`zone_${z.name}`, zones);
-            const corners: [number, number][] = [
-                [z.gx, z.gy], [z.gx + z.w, z.gy], [z.gx + z.w, z.gy + z.h], [z.gx, z.gy + z.h],
-            ].map(([gx, gy]) => [isoX(gx, gy), isoY(gx, gy)] as [number, number]);
-
-            const frame = this.zoneFrames[z.kind];
-            if (frame) {
-                // 존 모양(평행사변형) 스텐실 마스크 + 패턴 타일링 스프라이트
-                const mask = node.addComponent(Mask);
-                mask.type = Mask.Type.GRAPHICS_STENCIL;
-                const mg = node.getComponent(Graphics) ?? node.addComponent(Graphics);
-                mg.fillColor = this.color('#FFFFFF');
-                mg.moveTo(corners[0][0], corners[0][1]);
-                for (let c = 1; c < corners.length; c++) mg.lineTo(corners[c][0], corners[c][1]);
-                mg.close();
-                mg.fill();
-
-                // 패턴 위상을 전역(128×64 배수)에 스냅 — 존끼리 이음새 없이 이어짐
-                const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
-                const minX = Math.floor(Math.min(...xs) / TILE_W) * TILE_W;
-                const maxX = Math.ceil(Math.max(...xs) / TILE_W) * TILE_W;
-                const minY = Math.floor(Math.min(...ys) / TILE_H) * TILE_H;
-                const maxY = Math.ceil(Math.max(...ys) / TILE_H) * TILE_H;
-
-                const tex = this.makeNode('Pattern', node);
-                tex.addComponent(UITransform).setContentSize(maxX - minX, maxY - minY);
-                const sprite = tex.addComponent(Sprite);
-                sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-                sprite.type = Sprite.Type.TILED;
-                sprite.spriteFrame = frame;
-                tex.setPosition((minX + maxX) / 2, (minY + maxY) / 2, 0);
-            } else {
-                // 폴백: 반투명 틴트 (텍스처 파일이 없을 때)
-                const g = node.addComponent(Graphics);
-                g.fillColor = this.color(z.tint, 110);
-                g.moveTo(corners[0][0], corners[0][1]);
-                for (let c = 1; c < corners.length; c++) g.lineTo(corners[c][0], corners[c][1]);
-                g.close();
-                g.fill();
-            }
-        }
     }
 
     // ── 벽 충돌 (축 분리 이동 — 벽에 비스듬히 닿으면 미끄러짐) ──
@@ -564,6 +577,13 @@ export class IngameBootstrap extends Component {
     }
 
     private hitsWall(gx: number, gy: number): boolean {
+        // 타일 이동불가 속성 (attr=1) — 벽의 대체재
+        const R = this.map.groundRadius;
+        const row = this.tileGrid[Math.round(gy) + R];
+        const t = row ? row[Math.round(gx) + R] : undefined;
+        if (t && t.attr === TILE_ATTR_BLOCKED) return true;
+
+        // 벽 사각형 (레거시 데이터 지원 — walls가 있으면 여전히 동작)
         const r = IngameBootstrap.PLAYER_RADIUS;
         for (const w of this.map.walls) {
             if (gx > w.gx - r && gx < w.gx + w.w + r &&
@@ -592,16 +612,10 @@ export class IngameBootstrap extends Component {
         g.stroke();
     }
 
-    /** 플레이어가 어느 존에 있는지 판정 — 이후 웨이브 스포너/BGM 트리거가 물릴 자리 */
+    /** 플레이어가 어느 존에 있는지 판정 — 밟고 있는 타일의 zone 속성 기반 */
     private detectZone() {
-        let found: ZoneDef | null = null;
-        for (const z of this.map.zones) {
-            if (this.pgx >= z.gx && this.pgx <= z.gx + z.w &&
-                this.pgy >= z.gy && this.pgy <= z.gy + z.h) {
-                found = z;
-                break;
-            }
-        }
+        const zi = this.zoneIndexAtTile(this.pgx, this.pgy);
+        const found: ZoneDef | null = zi > 0 ? (this.map.zones[zi - 1] ?? null) : null;
         if (found !== this.currentZone) {
             this.currentZone = found;
             if (found) this.showZoneBanner(found);
@@ -730,27 +744,6 @@ export class IngameBootstrap extends Component {
     // ── 절차적 프레임(이미지 없이 도형) — 캐시해서 전부 공유 → 배칭 ──
     private _square: SpriteFrame | null = null;
     private _diamond: SpriteFrame | null = null;
-    private _floorPattern: SpriteFrame | null = null;
-
-    /**
-     * 아이소 바닥 패턴 1셀(TILE_W×TILE_H). 마름모 격자 라인만 투명(뒤 Background 색이 비침).
-     * 격자 라인 = frac(x/W + y/H)=0.5, frac(x/W - y/H)=0.5 두 직선 패밀리 → 이어붙이면 무한 마름모 그리드.
-     */
-    private floorPatternFrame(): SpriteFrame {
-        if (!this._floorPattern) {
-            const lw = 0.03; // 라인 두께 (임의)
-            // 캔버스 = 4×4셀(512×256) — TILED 반복 수를 줄여 네이티브 UI 버퍼 한도(에러 9004) 회피
-            this._floorPattern = this.makeFrame(TILE_W * 4, TILE_H * 4, (x, y) => {
-                const u = (x + 0.5) / TILE_W;
-                const v = (y + 0.5) / TILE_H;
-                const a = (u + v) % 1;
-                const b = (u - v + 8) % 1;
-                const isLine = Math.abs(a - 0.5) < lw || Math.abs(b - 0.5) < lw;
-                return isLine ? 0 : 255;
-            });
-        }
-        return this._floorPattern;
-    }
 
     private squareFrame(): SpriteFrame {
         if (!this._square) this._square = this.makeFrame(4, 4, () => 255);

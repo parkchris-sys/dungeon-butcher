@@ -6,7 +6,15 @@
  * 그리드 원점은 맵 중앙, 화면 하단 코너 = (-R, -R).
  */
 
-export type ZoneKind = 'hub' | 'dungeon';
+/** 타일 zone 값의 정식 정의 — 에디터·게임·문서 공용 */
+export enum ZoneType {
+    None = 0,     // 존 없음 (미개방 지대)
+    Town = 1,     // 마을 — 안전·회복, 몬스터 불가침
+    Dungeon = 2,  // 던전 — 웨이브 스폰
+    Corridor = 3, // 통로 — 몬스터 불가침·회복 없음·스폰 없음 (임의 — 기획 확정 대상)
+}
+
+export type ZoneKind = 'hub' | 'dungeon' | 'corridor';
 
 /** 구역 — 그리드 사각 영역(원점 = 최소 코너). 앞에 있는 존이 판정 우선. */
 export interface ZoneDef {
@@ -37,6 +45,17 @@ export interface WallDef {
     h: number;
 }
 
+/** 타일 1칸의 데이터 — 렌더링(img)과 게임 로직(zone/attr)의 단위 */
+export interface TileDef {
+    img: number;  // 타일 이미지 ID (0=기본 바닥, 1=마을, 2=던전 … 아트 확장 대상)
+    zone: number; // 구역 번호 (0=없음, 1=마을 hub, 2+=던전 dungeon)
+    attr: number; // 속성 번호 (아래 TILE_ATTR 참고)
+}
+
+/** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */
+export const TILE_ATTR_NONE = 0;
+export const TILE_ATTR_BLOCKED = 1; // 이동불가 — 벽을 대체
+
 export interface MapData {
     name: string;
     groundRadius: number;             // 바닥 그리드 반경(타일 수)
@@ -44,6 +63,110 @@ export interface MapData {
     zones: ZoneDef[];                 // 판정: 앞 항목 우선 / 그리기: 뒤 항목부터(밑에 깔림)
     props: PropDef[];
     walls: WallDef[];
+    tiles?: TileDef[][];              // [gy+R][gx+R] — 없으면 buildTileGrid로 존에서 파생
+}
+
+/** 존 목록에서 (gx,gy)가 속한 존 번호(1부터)를 찾음 — 0=없음. zones는 면적 오름차순 전제 */
+export function zoneIndexAt(zones: ZoneDef[], gx: number, gy: number): number {
+    for (let zi = 0; zi < zones.length; zi++) {
+        const z = zones[zi];
+        if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) return zi + 1;
+    }
+    return 0;
+}
+
+/** 존 번호(ZoneType) → 합성 존 정의. 1=마을(hub), 2=던전(dungeon), 3=통로(corridor) */
+export function synthZoneDef(zi: number): ZoneDef {
+    switch (zi) {
+        case ZoneType.Town:
+            return { name: '마을', kind: 'hub', gx: 0, gy: 0, w: 0, h: 0, tint: '#3A2E22' };
+        case ZoneType.Corridor:
+            return { name: '통로', kind: 'corridor', gx: 0, gy: 0, w: 0, h: 0, tint: '#3A3A44' };
+        case ZoneType.Dungeon:
+        default: // 4 이상은 일단 던전 취급 (임의)
+            return { name: '던전', kind: 'dungeon', gx: 0, gy: 0, w: 0, h: 0, tint: '#2A2240' };
+    }
+}
+
+/** 에디터가 내보낸 mapdata.json(v1: 존 사각형 포함 / v2: 타일 zone값만) → MapData */
+export function parseMapDataJson(j: unknown): MapData | null {
+    const d = j as {
+        version?: number; size?: number;
+        spawn?: { gx: number; gy: number };
+        zones?: ZoneDef[]; walls?: WallDef[]; props?: PropDef[];
+        tiles?: { img: number[]; zone: number[]; attr: number[] };
+    };
+    if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
+    if ((!d.zones || d.zones.length === 0) && !d.tiles) return null; // 존도 타일도 없으면 무효
+    const size = d.size;
+    const R = Math.floor((size - 1) / 2);
+
+    let tiles: TileDef[][] | undefined;
+    if (d.tiles && d.tiles.img?.length === size * size) {
+        tiles = [];
+        for (let iy = 0; iy < size; iy++) {
+            const row: TileDef[] = [];
+            for (let ix = 0; ix < size; ix++) {
+                const i = iy * size + ix;
+                row.push({
+                    img: d.tiles.img[i] ?? 0,
+                    zone: d.tiles.zone?.[i] ?? 0,
+                    attr: d.tiles.attr?.[i] ?? 0,
+                });
+            }
+            tiles.push(row);
+        }
+    }
+
+    // 존 목록: v1은 명시된 사각형, v2는 타일 zone값에서 합성 (안정된 객체 정체성을 위해 여기서 1회 생성)
+    let zones: ZoneDef[];
+    if (d.zones && d.zones.length > 0) {
+        zones = [...d.zones].sort((a, b) => a.w * a.h - b.w * b.h);
+    } else {
+        let maxZone = 0;
+        for (const z of d.tiles!.zone ?? []) if (z > maxZone) maxZone = z;
+        zones = [];
+        for (let zi = 1; zi <= maxZone; zi++) zones.push(synthZoneDef(zi));
+    }
+
+    return {
+        name: 'data',
+        groundRadius: R,
+        playerSpawn: d.spawn ?? { gx: 0, gy: 0 },
+        zones,
+        props: d.props ?? [],
+        walls: d.walls ?? [],
+        tiles,
+    };
+}
+
+/**
+ * 존 데이터 → 타일 그리드 파생 (타일 단위 저작이 들어오기 전까지의 기본 생성).
+ * img 매핑: hub=1, dungeon=2, 존 밖=0 (임의 — 타일 이미지 테이블 확정 시 갱신)
+ */
+export function buildTileGrid(map: MapData): TileDef[][] {
+    const R = map.groundRadius;
+    const size = R * 2 + 1;
+    const grid: TileDef[][] = [];
+    for (let iy = 0; iy < size; iy++) {
+        const row: TileDef[] = [];
+        const gy = iy - R;
+        for (let ix = 0; ix < size; ix++) {
+            const gx = ix - R;
+            let img = 0, zone = 0;
+            for (let zi = 0; zi < map.zones.length; zi++) {
+                const z = map.zones[zi];
+                if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) {
+                    img = z.kind === 'hub' ? 1 : 2;
+                    zone = zi + 1;
+                    break; // 좁은 존 우선 (zones는 면적 오름차순)
+                }
+            }
+            row.push({ img, zone, attr: 0 });
+        }
+        grid.push(row);
+    }
+    return grid;
 }
 
 /**

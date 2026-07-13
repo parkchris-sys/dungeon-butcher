@@ -25,6 +25,11 @@ export interface CombatUi {
     color(hex: string, alpha?: number): Color;
 }
 
+/** 몬스터가 진입 가능한 존인가 — 마을·통로는 불가침 (통로 규칙은 임의, 기획 확정 대상) */
+function monsterPassable(kind: 'hub' | 'dungeon' | 'corridor' | null): boolean {
+    return kind !== 'hub' && kind !== 'corridor';
+}
+
 export interface CombatHost {
     entities: Node;
     playerNode(): Node;
@@ -32,7 +37,7 @@ export interface CombatHost {
     facing(): 'left' | 'right';
     inDungeon(): boolean;
     inHub(): boolean;
-    zoneKindAt(gx: number, gy: number): 'hub' | 'dungeon' | null;
+    zoneKindAt(gx: number, gy: number): 'hub' | 'dungeon' | 'corridor' | null;
     hitsWall(gx: number, gy: number): boolean;
     groundR(): number;
     ui: CombatUi;
@@ -187,8 +192,8 @@ export class CombatSystem {
                 const step = (BAL.slime.speed * dt) / dist;
                 const nx = s.gx + dx * step, ny = s.gy + dy * step;
                 // 축 분리(벽 따라 미끄러짐) + 마을 존 진입 금지
-                if (!this.host.hitsWall(nx, s.gy) && this.host.zoneKindAt(nx, s.gy) !== 'hub') s.gx = nx;
-                if (!this.host.hitsWall(s.gx, ny) && this.host.zoneKindAt(s.gx, ny) !== 'hub') s.gy = ny;
+                if (!this.host.hitsWall(nx, s.gy) && monsterPassable(this.host.zoneKindAt(nx, s.gy))) s.gx = nx;
+                if (!this.host.hitsWall(s.gx, ny) && monsterPassable(this.host.zoneKindAt(s.gx, ny))) s.gy = ny;
                 // 통통 튀는 물량전 느낌: 이동 중 살짝 스쿼시
                 const bounce = Math.abs(Math.sin(this.time * 8 + s.gx * 3));
                 s.node.setScale(1 + bounce * 0.06, 1 - bounce * 0.08, 1);
@@ -253,11 +258,11 @@ export class CombatSystem {
                 const nx = (dx / d) * push, ny = (dy / d) * push;
                 // 벽·마을 존으로 밀려 들어가지 않게 각자 검사
                 if (!this.host.hitsWall(a.gx - nx, a.gy - ny) &&
-                    this.host.zoneKindAt(a.gx - nx, a.gy - ny) !== 'hub') {
+                    monsterPassable(this.host.zoneKindAt(a.gx - nx, a.gy - ny))) {
                     a.gx -= nx; a.gy -= ny;
                 }
                 if (!this.host.hitsWall(b.gx + nx, b.gy + ny) &&
-                    this.host.zoneKindAt(b.gx + nx, b.gy + ny) !== 'hub') {
+                    monsterPassable(this.host.zoneKindAt(b.gx + nx, b.gy + ny))) {
                     b.gx += nx; b.gy += ny;
                 }
             }
