@@ -45,6 +45,16 @@ export interface TileDef {
     dungeon?: number; // 던전 인스턴스 ID — 에디터 TileRegion.regionId에서 기록 (0/없음=자동 부여)
 }
 
+/** 편집 구역 정보 — 이름·던전ID·기하. 에디터 왕복 보존 + 게임의 던전 이름 표시용 */
+export interface MapRegionInfo {
+    name: string; // 지역 이름 (규칙: 던전 = d{ID})
+    id: number;   // 던전 인스턴스 ID (0 = 던전 아님/미지정)
+    gx: number;   // 최소 코너 그리드 좌표
+    gy: number;
+    w: number;    // 타일 수
+    h: number;
+}
+
 /** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */
 export const TILE_ATTR_NONE = 0;
 export const TILE_ATTR_BLOCKED = 1; // 이동불가 — 벽을 대체
@@ -56,6 +66,7 @@ export interface MapData {
     zones: ZoneDef[];                 // 존 정의 목록 — 판정의 원본은 타일 zone값
     props: PropDef[];
     tiles?: TileDef[][];              // [gy+R][gx+R] — 없으면 buildTileGrid로 존에서 파생
+    regions?: MapRegionInfo[];        // 편집 구역 (이름·던전ID·기하) — 에디터 왕복 + 던전 이름 표시
 }
 
 /** 존 목록에서 (gx,gy)가 속한 존 번호(1부터)를 찾음 — 0=없음. zones는 면적 오름차순 전제 */
@@ -88,6 +99,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
         spawn?: { gx: number; gy: number };
         zones?: ZoneDef[]; props?: PropDef[];
         tiles?: { img: number[]; zone: number[]; attr: number[]; dungeon?: number[] };
+        regions?: MapRegionInfo[];
     };
     if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
     if ((!d.zones || d.zones.length === 0) && !d.tiles) return null; // 존도 타일도 없으면 무효
@@ -130,6 +142,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
         zones,
         props: d.props ?? [],
         tiles,
+        regions: d.regions,
     };
 }
 

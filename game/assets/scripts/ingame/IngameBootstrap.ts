@@ -52,6 +52,8 @@ export class IngameBootstrap extends Component {
     private tileView: TileView | null = null;
     private tileGrid: TileDef[][] = [];
     private dungeonIds: number[][] = []; // 던전 인스턴스 ID (1부터) — 이어진 던전 덩어리 단위
+    private dungeonNames = new Map<number, string>(); // 던전 ID → 지역 이름 (mapdata.regions)
+    private currentDungeonId = 0; // 배너 재표시용 — 던전 간 직접 이동 감지
     /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
     private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
     private playerSprite: Sprite | null = null;
@@ -191,6 +193,10 @@ export class IngameBootstrap extends Component {
         this.tileGrid = this.map.tiles ?? buildTileGrid(this.map);
         const R = this.map.groundRadius;
         this.dungeonIds = buildDungeonIdGrid(this.tileGrid, R);
+        this.dungeonNames.clear();
+        for (const r of this.map.regions ?? []) {
+            if (r.id > 0) this.dungeonNames.set(r.id, r.name);
+        }
         this.tileView = new TileView(this.world, this.diamondFrame(), R, (gx, gy) => {
             const row = this.tileGrid[gy + R];
             return row ? row[gx + R] ?? null : null;
@@ -340,9 +346,9 @@ export class IngameBootstrap extends Component {
         this.bannerFade.opacity = 0;
     }
 
-    private showZoneBanner(z: ZoneDef) {
+    private showZoneBanner(z: ZoneDef, nameOverride?: string) {
         if (!this.bannerLabel || !this.bannerFade) return;
-        this.bannerLabel.string = z.name;
+        this.bannerLabel.string = nameOverride ?? z.name;
         const bannerColor = z.kind === 'dungeon' ? '#B9A6F0'
             : z.kind === 'corridor' ? '#9FA6B0' : '#F2A93B';
         this.bannerLabel.color = this.color(bannerColor);
@@ -595,9 +601,12 @@ export class IngameBootstrap extends Component {
     private detectZone() {
         const zi = this.zoneIndexAtTile(this.pgx, this.pgy);
         const found: ZoneDef | null = zi > 0 ? (this.map.zones[zi - 1] ?? null) : null;
-        if (found !== this.currentZone) {
+        const did = found?.kind === 'dungeon' ? this.dungeonIdAt(this.pgx, this.pgy) : 0;
+        if (found !== this.currentZone || did !== this.currentDungeonId) {
             this.currentZone = found;
-            if (found) this.showZoneBanner(found);
+            this.currentDungeonId = did;
+            // 던전은 지역 이름(d1 등) 우선 표시 — 던전끼리 붙어 있어도 이동 시 배너 재표시
+            if (found) this.showZoneBanner(found, did > 0 ? this.dungeonNames.get(did) : undefined);
         }
     }
 

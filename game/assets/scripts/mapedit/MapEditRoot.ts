@@ -7,7 +7,7 @@ import { EDITOR } from 'cc/env';
 import { MapTile } from './MapTile';
 import { TileRegion } from './TileRegion';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
-import { parseMapDataJson, synthZoneDef, ZoneType } from '../ingame/MapData';
+import { parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo } from '../ingame/MapData';
 import { TILE_COLORS } from '../ingame/TilePalette';
 import { TILE_STYLE } from '../ingame/TileView';
 
@@ -540,9 +540,31 @@ export class MapEditRoot extends Component {
             n.setPosition(p.gx * B, p.gy * B, 0);
         }
 
-        // 칠해진 데이터에서 편집 구역 자동 생성 (같은 존 값의 연결 덩어리마다 1개)
-        this.rebuildRegionsFromData();
+        // 구역 복원: 데이터에 저장된 구역(이름·ID·기하) 우선, 없으면 클러스터 파생(레거시)
+        if (map.regions && map.regions.length > 0) this.restoreRegionsFromList(map.regions);
+        else this.rebuildRegionsFromData();
         console.log(`[MapEditRoot] 불러오기 완료 — ${this.mapTiles}×${this.mapTiles}, 데이터 타일 ${Object.keys(ov).length}개, 배치물 ${map.props.length}개`);
+    }
+
+    /** 데이터에 저장된 구역 목록으로 편집 구역 복원 — 이름·던전ID·기하 그대로 */
+    private restoreRegionsFromList(list: MapRegionInfo[]) {
+        this.destroyTiles();
+        this.activeRegion = null;
+        this.lastRegionKey = '';
+        const group = this.regionsGroup();
+        for (const c of [...group.children]) c.destroy();
+        for (const r of list) {
+            const n = this.createMarker(group, r.name, r.w * B, r.h * B, '#FFFFFF');
+            const sp = n.getComponent(Sprite)!;
+            const c = sp.color.clone();
+            c.a = 30;
+            sp.color = c;
+            n.setPosition((r.gx - 0.5 + r.w / 2) * B, (r.gy - 0.5 + r.h / 2) * B, 0);
+            const tr = n.addComponent(TileRegion);
+            tr.regionId = r.id;
+            this.ensurePropsGroup(n);
+        }
+        console.log(`[MapEditRoot] 구역 복원: ${list.length}개 (데이터 저장분)`);
     }
 
     /** 타일 데이터의 존 덩어리(연결 요소)마다 편집 구역 마커 생성 — 기존 구역은 교체 */
@@ -663,23 +685,25 @@ export class MapEditRoot extends Component {
         const N = this.mapTiles;
         const R = (N - 1) / 2;
         const overrides = this.overrides();
-        // regionId가 지정된 구역 목록 (던전 ID 기록용)
-        const idRegions: { gx0: number; gy0: number; w: number; h: number; id: number }[] = [];
+        // 모든 구역(이름·던전ID·기하) 수집 — 데이터에 저장해 에디터 왕복 보존 + 게임 이름 표시
+        const regionList: MapRegionInfo[] = [];
         for (const n of this.regionsGroup().children) {
             const tr = n.getComponent(TileRegion);
             const ut = n.getComponent(UITransform);
-            if (!tr || !ut || tr.regionId <= 0) continue;
+            if (!tr || !ut) continue;
             const w = Math.round(ut.contentSize.width / B);
             const h = Math.round(ut.contentSize.height / B);
-            idRegions.push({
-                gx0: Math.floor(n.position.x / B - w / 2 + 0.5),
-                gy0: Math.floor(n.position.y / B - h / 2 + 0.5),
-                w, h, id: tr.regionId,
+            regionList.push({
+                name: n.name,
+                id: tr.regionId,
+                gx: Math.floor(n.position.x / B - w / 2 + 0.5),
+                gy: Math.floor(n.position.y / B - h / 2 + 0.5),
+                w, h,
             });
         }
         const dungeonIdOf = (gx: number, gy: number): number => {
-            for (const r of idRegions) {
-                if (gx >= r.gx0 && gx < r.gx0 + r.w && gy >= r.gy0 && gy < r.gy0 + r.h) return r.id;
+            for (const r of regionList) {
+                if (r.id > 0 && gx >= r.gx && gx < r.gx + r.w && gy >= r.gy && gy < r.gy + r.h) return r.id;
             }
             return 0;
         };
@@ -699,6 +723,7 @@ export class MapEditRoot extends Component {
             version: 2, size: N,
             spawn: map.playerSpawn, props: map.props,
             tiles: { img, zone, attr, dungeon },
+            regions: regionList,
         };
         Editor.Message.request('asset-db', 'create-asset',
             url, JSON.stringify(payload), { overwrite: true })
