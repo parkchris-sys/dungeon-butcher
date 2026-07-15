@@ -39,9 +39,10 @@ export interface PropDef {
 
 /** 타일 1칸의 데이터 — 렌더링(img)과 게임 로직(zone/attr)의 단위 */
 export interface TileDef {
-    img: number;  // 타일 이미지 ID (0=기본 바닥, 1=마을, 2=던전 … 아트 확장 대상)
-    zone: number; // 구역 번호 (0=없음, 1=마을 hub, 2+=던전 dungeon)
-    attr: number; // 속성 번호 (아래 TILE_ATTR 참고)
+    img: number;      // 타일 이미지 ID (0=기본 바닥 — {ID}_{이름}.png와 매칭)
+    zone: number;     // 구역 타입 (ZoneType: 0없음/1마을/2던전/3통로)
+    attr: number;     // 속성 번호 (아래 TILE_ATTR 참고)
+    dungeon?: number; // 던전 인스턴스 ID — 에디터 TileRegion.regionId에서 기록 (0/없음=자동 부여)
 }
 
 /** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */
@@ -86,7 +87,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
         version?: number; size?: number;
         spawn?: { gx: number; gy: number };
         zones?: ZoneDef[]; props?: PropDef[];
-        tiles?: { img: number[]; zone: number[]; attr: number[] };
+        tiles?: { img: number[]; zone: number[]; attr: number[]; dungeon?: number[] };
     };
     if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
     if ((!d.zones || d.zones.length === 0) && !d.tiles) return null; // 존도 타일도 없으면 무효
@@ -104,6 +105,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
                     img: d.tiles.img[i] ?? 0,
                     zone: d.tiles.zone?.[i] ?? 0,
                     attr: d.tiles.attr?.[i] ?? 0,
+                    dungeon: d.tiles.dungeon?.[i] ?? 0,
                 });
             }
             tiles.push(row);
@@ -132,9 +134,10 @@ export function parseMapDataJson(j: unknown): MapData | null {
 }
 
 /**
- * 던전 인스턴스 ID 그리드 — 이어진 던전 타일 덩어리마다 1부터 번호를 붙인다.
- * 발견 순서는 행 우선(gy 오름차순 → gx 오름차순) — 에디터의 자동 구역 이름(던전1·던전2…)과 일치.
- * 몬스터 소속·어그로·던전별 스폰 설정의 기준.
+ * 던전 인스턴스 ID 그리드 — 몬스터 소속·어그로·던전별 스폰 설정의 기준.
+ * ① 명시 ID 우선: 에디터에서 TileRegion.regionId로 지정해 타일에 기록된 값 (안정적 — 권장)
+ * ② 자동 보충: 명시 ID가 없는 던전 타일은 연결 덩어리별 자동 부여
+ *    (명시 ID가 하나라도 있으면 1000+부터 — 설정 충돌 방지 / 전혀 없으면 1부터, 레거시 호환)
  */
 export function buildDungeonIdGrid(tiles: TileDef[][], R: number): number[][] {
     const size = R * 2 + 1;
@@ -144,7 +147,20 @@ export function buildDungeonIdGrid(tiles: TileDef[][], R: number): number[][] {
         ix >= 0 && iy >= 0 && ix < size && iy < size &&
         (tiles[iy]?.[ix]?.zone ?? 0) === ZoneType.Dungeon;
 
-    let next = 1;
+    // ① 명시 ID 반영
+    let hasExplicit = false;
+    for (let iy = 0; iy < size; iy++) {
+        for (let ix = 0; ix < size; ix++) {
+            const d = tiles[iy]?.[ix]?.dungeon ?? 0;
+            if (d > 0 && isDungeon(ix, iy)) {
+                ids[iy][ix] = d;
+                hasExplicit = true;
+            }
+        }
+    }
+
+    // ② 자동 보충 (연결 요소)
+    let next = hasExplicit ? 1001 : 1;
     for (let iy = 0; iy < size; iy++) {
         for (let ix = 0; ix < size; ix++) {
             if (ids[iy][ix] !== 0 || !isDungeon(ix, iy)) continue;

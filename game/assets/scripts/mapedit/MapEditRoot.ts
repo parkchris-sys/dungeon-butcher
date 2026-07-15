@@ -63,6 +63,7 @@ export class MapEditRoot extends Component {
     private lastH = 0;
     private lastMapTiles = 0; // 맵 크기 변경 감지 — 아래 모서리 고정 성장용
     private lastPreviewKey = ''; // 데이터 프리뷰 갱신 감지
+    private lastImportDungeonIds = new Map<string, number>(); // 임포트한 타일별 던전 ID (구역 재생성용)
 
     update() {
         if (!EDITOR) return;
@@ -501,14 +502,17 @@ export class MapEditRoot extends Component {
 
         // 타일 그리드 → 변경분 저장소 (0이 아닌 타일만)
         const ov: Record<string, number[]> = {};
+        this.lastImportDungeonIds.clear();
         const grid = map.tiles ?? [];
         for (let iy = 0; iy < grid.length; iy++) {
             const row = grid[iy] ?? [];
             for (let ix = 0; ix < row.length; ix++) {
                 const t = row[ix];
+                const key = `${ix - R},${iy - R}`;
                 if (t.img !== 0 || t.attr !== 0 || t.zone !== 0) {
-                    ov[`${ix - R},${iy - R}`] = [t.img, t.attr, t.zone];
+                    ov[key] = [t.img, t.attr, t.zone];
                 }
+                if ((t.dungeon ?? 0) > 0) this.lastImportDungeonIds.set(key, t.dungeon!);
             }
         }
         this.tileOverridesJson = JSON.stringify(ov);
@@ -590,9 +594,11 @@ export class MapEditRoot extends Component {
             const w = Math.min(REGION_MAX, maxX - minX + 1);
             const h = Math.min(REGION_MAX, maxY - minY + 1);
             counts[z] = (counts[z] || 0) + 1;
-            // 네이밍 규칙: 던전은 d{던전ID} (게임의 던전 인스턴스 ID와 동일 순서), 나머지는 한글+번호
+            // 네이밍 규칙: 던전은 d{던전ID} — ID는 데이터(tiles.dungeon)에 기록된 명시값 우선, 없으면 순번
+            const explicitId = z === ZoneType.Dungeon ? (this.lastImportDungeonIds.get(start) ?? 0) : 0;
+            const dungeonId = explicitId > 0 ? explicitId : counts[z];
             const name = z === ZoneType.Dungeon
-                ? `d${counts[z]}`
+                ? `d${dungeonId}`
                 : `${synthZoneDef(z).name}${counts[z]}`;
             const n = this.createMarker(group, name, w * B, h * B, '#FFFFFF');
             const sp = n.getComponent(Sprite)!;
@@ -600,7 +606,8 @@ export class MapEditRoot extends Component {
             c.a = 30;
             sp.color = c;
             n.setPosition((minX - 0.5 + w / 2) * B, (minY - 0.5 + h / 2) * B, 0);
-            n.addComponent(TileRegion);
+            const tr = n.addComponent(TileRegion);
+            if (z === ZoneType.Dungeon) tr.regionId = dungeonId;
             this.ensurePropsGroup(n);
             made++;
             if (maxX - minX + 1 > REGION_MAX || maxY - minY + 1 > REGION_MAX) {
@@ -656,19 +663,42 @@ export class MapEditRoot extends Component {
         const N = this.mapTiles;
         const R = (N - 1) / 2;
         const overrides = this.overrides();
-        const img: number[] = [], zone: number[] = [], attr: number[] = [];
+        // regionId가 지정된 구역 목록 (던전 ID 기록용)
+        const idRegions: { gx0: number; gy0: number; w: number; h: number; id: number }[] = [];
+        for (const n of this.regionsGroup().children) {
+            const tr = n.getComponent(TileRegion);
+            const ut = n.getComponent(UITransform);
+            if (!tr || !ut || tr.regionId <= 0) continue;
+            const w = Math.round(ut.contentSize.width / B);
+            const h = Math.round(ut.contentSize.height / B);
+            idRegions.push({
+                gx0: Math.floor(n.position.x / B - w / 2 + 0.5),
+                gy0: Math.floor(n.position.y / B - h / 2 + 0.5),
+                w, h, id: tr.regionId,
+            });
+        }
+        const dungeonIdOf = (gx: number, gy: number): number => {
+            for (const r of idRegions) {
+                if (gx >= r.gx0 && gx < r.gx0 + r.w && gy >= r.gy0 && gy < r.gy0 + r.h) return r.id;
+            }
+            return 0;
+        };
+
+        const img: number[] = [], zone: number[] = [], attr: number[] = [], dungeon: number[] = [];
         for (let gy = -R; gy <= R; gy++) {
             for (let gx = -R; gx <= R; gx++) {
                 const ov = overrides[`${gx},${gy}`];
+                const z = ov ? (ov[2] ?? 0) : 0;
                 img.push(ov ? ov[0] : 0);
                 attr.push(ov ? (ov[1] ?? 0) : 0);
-                zone.push(ov ? (ov[2] ?? 0) : 0);
+                zone.push(z);
+                dungeon.push(z === ZoneType.Dungeon ? dungeonIdOf(gx, gy) : 0);
             }
         }
         const payload = {
             version: 2, size: N,
             spawn: map.playerSpawn, props: map.props,
-            tiles: { img, zone, attr },
+            tiles: { img, zone, attr, dungeon },
         };
         Editor.Message.request('asset-db', 'create-asset',
             url, JSON.stringify(payload), { overwrite: true })

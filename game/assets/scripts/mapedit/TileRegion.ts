@@ -1,4 +1,4 @@
-import { _decorator, Component, CCBoolean } from 'cc';
+import { _decorator, Component, CCBoolean, CCInteger } from 'cc';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
@@ -13,4 +13,12 @@ const { ccclass, property, executeInEditMode } = _decorator;
 export class TileRegion extends Component {
     @property({ type: CCBoolean, tooltip: '체크 = 이 구역의 타일을 펼쳐서 편집 (한 번에 한 구역만)' })
     editTiles = false;
+
+    @property({
+        type: CCInteger,
+        tooltip: '던전 인스턴스 ID — 내보내기 시 이 구역이 덮는 던전 타일에 기록됨.\n'
+            + '몬스터 스폰 설정(DUNGEON_KINDS)의 키. 던전마다 고유 번호 지정 (0 = 미지정 → 자동 부여).\n'
+            + '노드 이름 규칙: d{ID} (예: d1, d2)',
+    })
+    regionId = 0;
 }
