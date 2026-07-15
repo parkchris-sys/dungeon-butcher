@@ -1,10 +1,19 @@
-import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger } from 'cc';
+import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, Enum, CCObject } from 'cc';
 import { EDITOR } from 'cc/env';
 import { TILE_STYLE } from '../ingame/TileView';
 import { TILE_COLORS } from '../ingame/TilePalette';
 import { tileFrame, ensureTileFrames } from './TileFrameCache';
 
 const { ccclass, property, executeInEditMode } = _decorator;
+
+/** Inspector 드롭다운용 존 타입 — 값은 게임의 ZoneType(MapData.ts)과 동일 */
+enum 존타입 {
+    없음 = 0,
+    마을 = 1,
+    던전 = 2,
+    통로 = 3,
+}
+Enum(존타입);
 
 /**
  * 맵 편집 씬의 타일 1칸 — Inspector에서 img/attr/zone을 편집한다 (다중 선택 편집 가능).
@@ -20,8 +29,8 @@ export class MapTile extends Component {
     @property({ type: CCInteger, tooltip: '속성 번호 — 0=없음, 1=이동불가(벽 대체). 이후 기획 표에 따라 확장' })
     attr = 0;
 
-    @property({ type: CCInteger, tooltip: '구역 타입 — 0=없음 / 1=마을(안전·회복) / 2=던전(스폰) / 3=통로(몬스터 불가침)' })
-    zone = 0;
+    @property({ type: 존타입, tooltip: '구역 타입 — 마을(안전·회복) / 던전(스폰) / 통로(몬스터 불가침)' })
+    zone: 존타입 = 존타입.없음;
 
     private lastImg = -1;
     private lastAttr = -1;
@@ -53,10 +62,14 @@ export class MapTile extends Component {
             const sp = view.getComponent(Sprite)!;
             sp.spriteFrame = sf;
             sp.color = this.tintColor('#FFFFFF');
+            sp.markForUpdateRenderData();
             view.active = true;
-            base.color = new Color(0, 0, 0, 0); // 밑판 숨김
+            // ⚠️ 밑판 숨김에 알파 0 금지 — Sprite 색상 알파는 자식에게 상속되어
+            // _img까지 투명해진다. 컴포넌트 비활성화로 숨긴다 (자식 영향 없음).
+            base.enabled = false;
         } else {
             if (this.imgNode) this.imgNode.active = false;
+            base.enabled = true;
             const hex = this.attr === 1 ? '#B03A30'
                 : (TILE_COLORS[this.img - 1] ?? (TILE_STYLE[this.img] ?? TILE_STYLE[0])[0]);
             const c = new Color();
@@ -75,7 +88,13 @@ export class MapTile extends Component {
     /** 역보정 이미지 노드: 부모 체인의 R(45)·S(1,0.5)를 R(-45)·S(1,2)로 상쇄 */
     private ensureImgNode(): Node {
         if (this.imgNode && this.imgNode.isValid) return this.imgNode;
+        // 이전 세션에서 씬에 저장돼 남은 잔재 제거 — 런타임 프레임은 직렬화 불가라
+        // 저장된 _img는 이미지 링크가 빈 스프라이트만 남는다 (누적 방지)
+        for (const child of [...this.node.children]) {
+            if (child.name === '_img') child.destroy();
+        }
         const n = new Node('_img');
+        n.hideFlags = CCObject.Flags.DontSave; // 씬에 저장 금지 (편집용 일회성 비주얼)
         n.layer = Layers.Enum.UI_2D;
         this.node.addChild(n);
         n.angle = -45;
@@ -84,6 +103,7 @@ export class MapTile extends Component {
         n.addComponent(UITransform).setContentSize(32 * Math.SQRT2, 16 * Math.SQRT2);
         const sp = n.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        sp.trim = false; // 마름모의 투명 모서리가 트리밍되면 비율이 왜곡됨
         this.imgNode = n;
         return n;
     }

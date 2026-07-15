@@ -1,5 +1,5 @@
 import { Node, UITransform, Sprite } from 'cc';
-import { MapData, ZoneDef, PropDef, WallDef, ZoneKind } from './MapData';
+import { MapData, ZoneDef, PropDef, ZoneKind } from './MapData';
 
 /**
  * 맵 편집 씬(MapRoot 노드 트리) → MapData 파서.
@@ -7,7 +7,7 @@ import { MapData, ZoneDef, PropDef, WallDef, ZoneKind } from './MapData';
  * resources/maps/mapdata.json(parseMapDataJson)을 읽고, 편집 씬은 빌드에 포함되지 않는다.
  *
  * 규약: 청사진 1타일 = 32px, 원점 = 맵 중앙.
- * MapRoot 아래 zones/hub, zones/dungeon, walls, props, spawn — 마커의 위치·크기·색이 곧 데이터.
+ * MapRoot 아래 zones/hub, zones/dungeon, props, spawn — 마커의 위치·크기·색이 곧 데이터.
  * '_'로 시작하는 노드는 무시.
  */
 
@@ -49,13 +49,6 @@ export function parseMapRoot(root: Node): MapData | null {
     }
     zones.sort((a, b) => a.w * a.h - b.w * b.h); // (v2에선 존 그룹이 없어도 됨 — 빈 배열 허용)
 
-    const walls: WallDef[] = [];
-    for (const n of root.getChildByName('walls')?.children ?? []) {
-        if (n.name.startsWith('_')) continue;
-        const r = rectOf(n);
-        if (r) walls.push(r);
-    }
-
     const propList: PropDef[] = [];
     const collectProps = (group: Node | null, baseX: number, baseY: number) => {
         for (const n of group?.children ?? []) {
@@ -83,5 +76,5 @@ export function parseMapRoot(root: Node): MapData | null {
         playerSpawn = { gx: spawnNode.position.x / B, gy: spawnNode.position.y / B };
     }
 
-    return { name: 'scene', groundRadius, playerSpawn, zones, props: propList, walls };
+    return { name: 'scene', groundRadius, playerSpawn, zones, props: propList };
 }

@@ -37,14 +37,6 @@ export interface PropDef {
     tint: string;
 }
 
-/** 벽 — 이동을 막는 그리드 사각 영역(원점 = 최소 코너). 게이트 통로는 벽을 안 그린 틈으로 표현 */
-export interface WallDef {
-    gx: number;
-    gy: number;
-    w: number;
-    h: number;
-}
-
 /** 타일 1칸의 데이터 — 렌더링(img)과 게임 로직(zone/attr)의 단위 */
 export interface TileDef {
     img: number;  // 타일 이미지 ID (0=기본 바닥, 1=마을, 2=던전 … 아트 확장 대상)
@@ -60,9 +52,8 @@ export interface MapData {
     name: string;
     groundRadius: number;             // 바닥 그리드 반경(타일 수)
     playerSpawn: { gx: number; gy: number };
-    zones: ZoneDef[];                 // 판정: 앞 항목 우선 / 그리기: 뒤 항목부터(밑에 깔림)
+    zones: ZoneDef[];                 // 존 정의 목록 — 판정의 원본은 타일 zone값
     props: PropDef[];
-    walls: WallDef[];
     tiles?: TileDef[][];              // [gy+R][gx+R] — 없으면 buildTileGrid로 존에서 파생
 }
 
@@ -70,7 +61,8 @@ export interface MapData {
 export function zoneIndexAt(zones: ZoneDef[], gx: number, gy: number): number {
     for (let zi = 0; zi < zones.length; zi++) {
         const z = zones[zi];
-        if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) return zi + 1;
+        // 반개구간 — 폭 w 사각형은 타일 w개 (gx0 .. gx0+w-1). <= 쓰면 한 줄 더 먹는 off-by-one
+        if (gx >= z.gx && gx < z.gx + z.w && gy >= z.gy && gy < z.gy + z.h) return zi + 1;
     }
     return 0;
 }
@@ -93,7 +85,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
     const d = j as {
         version?: number; size?: number;
         spawn?: { gx: number; gy: number };
-        zones?: ZoneDef[]; walls?: WallDef[]; props?: PropDef[];
+        zones?: ZoneDef[]; props?: PropDef[];
         tiles?: { img: number[]; zone: number[]; attr: number[] };
     };
     if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
@@ -135,9 +127,43 @@ export function parseMapDataJson(j: unknown): MapData | null {
         playerSpawn: d.spawn ?? { gx: 0, gy: 0 },
         zones,
         props: d.props ?? [],
-        walls: d.walls ?? [],
         tiles,
     };
+}
+
+/**
+ * 던전 인스턴스 ID 그리드 — 이어진 던전 타일 덩어리마다 1부터 번호를 붙인다.
+ * 발견 순서는 행 우선(gy 오름차순 → gx 오름차순) — 에디터의 자동 구역 이름(던전1·던전2…)과 일치.
+ * 몬스터 소속·어그로·던전별 스폰 설정의 기준.
+ */
+export function buildDungeonIdGrid(tiles: TileDef[][], R: number): number[][] {
+    const size = R * 2 + 1;
+    const ids: number[][] = [];
+    for (let i = 0; i < size; i++) ids.push(new Array(size).fill(0));
+    const isDungeon = (ix: number, iy: number) =>
+        ix >= 0 && iy >= 0 && ix < size && iy < size &&
+        (tiles[iy]?.[ix]?.zone ?? 0) === ZoneType.Dungeon;
+
+    let next = 1;
+    for (let iy = 0; iy < size; iy++) {
+        for (let ix = 0; ix < size; ix++) {
+            if (ids[iy][ix] !== 0 || !isDungeon(ix, iy)) continue;
+            const queue: [number, number][] = [[ix, iy]];
+            ids[iy][ix] = next;
+            while (queue.length) {
+                const [x, y] = queue.pop()!;
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const nx = x + dx, ny = y + dy;
+                    if (isDungeon(nx, ny) && ids[ny][nx] === 0) {
+                        ids[ny][nx] = next;
+                        queue.push([nx, ny]);
+                    }
+                }
+            }
+            next++;
+        }
+    }
+    return ids;
 }
 
 /**
@@ -156,7 +182,7 @@ export function buildTileGrid(map: MapData): TileDef[][] {
             let img = 0, zone = 0;
             for (let zi = 0; zi < map.zones.length; zi++) {
                 const z = map.zones[zi];
-                if (gx >= z.gx && gx <= z.gx + z.w && gy >= z.gy && gy <= z.gy + z.h) {
+                if (gx >= z.gx && gx < z.gx + z.w && gy >= z.gy && gy < z.gy + z.h) {
                     img = z.kind === 'hub' ? 1 : 2;
                     zone = zi + 1;
                     break; // 좁은 존 우선 (zones는 면적 오름차순)
@@ -187,5 +213,4 @@ export const DEV_MAP: MapData = {
         { kind: 'counter', gx: -14, gy: -20, w: 140, h: 90,  tint: '#F2A93B' }, // 판매대
         { kind: 'gate',    gx: -11, gy: -11, w: 100, h: 150, tint: '#6C4BB0' }, // 사냥지대 경계 표시
     ],
-    walls: [], // 폴백 맵은 벽 없음 — 벽은 Tiled 'walls' 레이어에서 저작
 };

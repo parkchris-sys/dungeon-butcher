@@ -17,6 +17,19 @@ const BAL = {
     stack: { limit: 10, pieceH: 15, swayAmp: 4, swaySpeed: 3 },
 };
 
+/**
+ * 던전별 스폰 몬스터 종류 — 던전 ID(1부터) → 종류 목록 (임의 — 기획 표 확정 시 BALANCE로 이관).
+ * 미지정 던전은 DEFAULT_KINDS. 현재 구현된 종류는 slime뿐이라 구조만 준비됨.
+ */
+const DUNGEON_KINDS: Record<number, string[]> = {
+    // 예: 1: ['slime'], 2: ['slime', 'goblin'],
+};
+const DEFAULT_KINDS = ['slime'];
+function pickKind(dungeonId: number): string {
+    const kinds = DUNGEON_KINDS[dungeonId] ?? DEFAULT_KINDS;
+    return kinds[Math.floor(Math.random() * kinds.length)];
+}
+
 export interface CombatUi {
     makeNode(name: string, parent: Node): Node;
     addSprite(name: string, parent: Node, frame: SpriteFrame, w: number, h: number, color: Color): Node;
@@ -38,6 +51,8 @@ export interface CombatHost {
     inDungeon(): boolean;
     inHub(): boolean;
     zoneKindAt(gx: number, gy: number): 'hub' | 'dungeon' | 'corridor' | null;
+    dungeonIdAt(gx: number, gy: number): number;  // 던전 인스턴스 ID (0=던전 아님)
+    playerDungeonId(): number;
     hitsWall(gx: number, gy: number): boolean;
     groundR(): number;
     ui: CombatUi;
@@ -51,7 +66,9 @@ interface Slime {
     node: Node;
     body: Sprite;
     gx: number; gy: number;
-    homeGx: number; homeGy: number; // 스폰 위치 — 플레이어가 마을에 가면 여기로 복귀
+    homeGx: number; homeGy: number; // 스폰 위치 — 관심 끊으면 여기로 복귀
+    dungeonId: number;              // 소속 던전 — 다른 던전으로는 이동·추적 불가
+    kind: string;                   // 몬스터 종류 (던전별 설정 — 현재 slime만 구현)
     hp: number;
     flashT: number;   // 피격 플래시 남은 시간
     dieT: number;     // 0보다 크면 사망 연출 중
@@ -118,7 +135,8 @@ export class CombatSystem {
     // ── 웨이브 스폰 (규칙 TBD 기획 — 임시: 던전 안에서 주기 스폰) ──
     private updateSpawn(dt: number) {
         this.spawnTimer -= dt;
-        if (!this.host.inDungeon() || this.spawnTimer > 0) return;
+        const pid = this.host.playerDungeonId();
+        if (pid === 0 || this.spawnTimer > 0) return; // 던전 안일 때만
         this.spawnTimer = BAL.wave.intervalS;
 
         const alive = this.slimes.filter(s => s.alive).length;
@@ -133,7 +151,7 @@ export class CombatSystem {
             const gx = Math.max(-R, Math.min(R, p.gx + Math.cos(ang) * dist));
             const gy = Math.max(-R, Math.min(R, p.gy + Math.sin(ang) * dist));
             if (this.host.hitsWall(gx, gy)) continue;
-            if (this.host.zoneKindAt(gx, gy) !== 'dungeon') continue; // 스폰은 던전 존 안에서만
+            if (this.host.dungeonIdAt(gx, gy) !== pid) continue; // 플레이어와 같은 던전 안에서만
             this.spawnSlime(gx, gy);
         }
     }
@@ -151,11 +169,14 @@ export class CombatSystem {
             ui.addSprite('EyeR', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(13, 4, 0);
             s = {
                 node, body: bodyNode.getComponent(Sprite)!, gx, gy,
-                homeGx: gx, homeGy: gy, hp: BAL.slime.hp, flashT: 0, dieT: 0, alive: true,
+                homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'slime',
+                hp: BAL.slime.hp, flashT: 0, dieT: 0, alive: true,
             };
         }
         s.gx = gx; s.gy = gy;
         s.homeGx = gx; s.homeGy = gy;
+        s.dungeonId = this.host.dungeonIdAt(gx, gy);
+        s.kind = pickKind(s.dungeonId); // 던전별 스폰 종류 (현재 slime만 — 종류별 외형/스탯은 추후)
         s.hp = BAL.slime.hp;
         s.flashT = 0; s.dieT = 0; s.alive = true;
         s.node.active = true;
@@ -168,7 +189,7 @@ export class CombatSystem {
     // ── 슬라임 이동(추적/복귀)·피격 연출·접촉 데미지·사망 ──
     private updateSlimes(dt: number) {
         const p = this.host.playerG();
-        const chasing = this.host.inDungeon(); // 플레이어가 마을이면 추적 중단 → 스폰 위치로 복귀
+        const pid = this.host.playerDungeonId(); // 0=던전 밖
         if (this.invulnT > 0) this.invulnT -= dt;
 
         for (const s of this.slimes) {
@@ -183,6 +204,8 @@ export class CombatSystem {
                 s.body.color = this.host.ui.color('#3B7A54');
             }
 
+            // 추적 = 플레이어가 "이 몬스터의 던전"에 있을 때만 — 마을·통로·다른 던전이면 복귀
+            const chasing = pid === s.dungeonId;
             const tx = chasing ? p.gx : s.homeGx;
             const ty = chasing ? p.gy : s.homeGy;
             const dx = tx - s.gx, dy = ty - s.gy;
@@ -191,9 +214,9 @@ export class CombatSystem {
             if (dist > stopAt) {
                 const step = (BAL.slime.speed * dt) / dist;
                 const nx = s.gx + dx * step, ny = s.gy + dy * step;
-                // 축 분리(벽 따라 미끄러짐) + 마을 존 진입 금지
-                if (!this.host.hitsWall(nx, s.gy) && monsterPassable(this.host.zoneKindAt(nx, s.gy))) s.gx = nx;
-                if (!this.host.hitsWall(s.gx, ny) && monsterPassable(this.host.zoneKindAt(s.gx, ny))) s.gy = ny;
+                // 축 분리(벽 따라 미끄러짐) + 마을·통로·다른 던전 진입 금지
+                if (this.canStand(s, nx, s.gy)) s.gx = nx;
+                if (this.canStand(s, s.gx, ny)) s.gy = ny;
                 // 통통 튀는 물량전 느낌: 이동 중 살짝 스쿼시
                 const bounce = Math.abs(Math.sin(this.time * 8 + s.gx * 3));
                 s.node.setScale(1 + bounce * 0.06, 1 - bounce * 0.08, 1);
@@ -207,6 +230,13 @@ export class CombatSystem {
             }
         }
         this.slimes = this.slimes.filter(s => s.alive);
+    }
+
+    /** 몬스터가 (gx,gy)에 설 수 있는가 — 벽/존 규칙 + 소속 던전 안에서만 */
+    private canStand(s: Slime, gx: number, gy: number): boolean {
+        return !this.host.hitsWall(gx, gy) &&
+            monsterPassable(this.host.zoneKindAt(gx, gy)) &&
+            this.host.dungeonIdAt(gx, gy) === s.dungeonId;
     }
 
     // ── 플레이어 피격/죽음 (PHASE1 §3: 죽으면 런 획득물 손실, 마을 부활) ──
@@ -256,13 +286,11 @@ export class CombatSystem {
                 }
                 const push = (minD - d) / 2;
                 const nx = (dx / d) * push, ny = (dy / d) * push;
-                // 벽·마을 존으로 밀려 들어가지 않게 각자 검사
-                if (!this.host.hitsWall(a.gx - nx, a.gy - ny) &&
-                    monsterPassable(this.host.zoneKindAt(a.gx - nx, a.gy - ny))) {
+                // 벽·타 존·다른 던전으로 밀려 들어가지 않게 각자 검사
+                if (this.canStand(a, a.gx - nx, a.gy - ny)) {
                     a.gx -= nx; a.gy -= ny;
                 }
-                if (!this.host.hitsWall(b.gx + nx, b.gy + ny) &&
-                    monsterPassable(this.host.zoneKindAt(b.gx + nx, b.gy + ny))) {
+                if (this.canStand(b, b.gx + nx, b.gy + ny)) {
                     b.gx += nx; b.gy += ny;
                 }
             }

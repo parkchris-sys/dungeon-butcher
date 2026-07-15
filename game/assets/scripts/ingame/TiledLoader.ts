@@ -1,4 +1,4 @@
-import { MapData, ZoneDef, PropDef, WallDef, ZoneKind } from './MapData';
+import { MapData, ZoneDef, PropDef, ZoneKind } from './MapData';
 import { TILE_H } from './Projection';
 
 /**
@@ -51,7 +51,6 @@ export function parseTiledMap(json: unknown): MapData | null {
 
     const zones: ZoneDef[] = [];
     const propList: PropDef[] = [];
-    const walls: WallDef[] = [];
     let spawn = { gx: 0, gy: 0 };
 
     // Tiled 사각 오브젝트 → 우리 그리드 사각 (축 스왑+반전)
@@ -78,10 +77,6 @@ export function parseTiledMap(json: unknown): MapData | null {
                     ...rectFromTiled(o),
                     tint: (p.tint as string) || '#2A2240',
                 });
-            }
-        } else if (layer.name === 'walls') {
-            for (const o of layer.objects) {
-                walls.push(rectFromTiled(o));
             }
         } else if (layer.name === 'props') {
             for (const o of layer.objects) {
@@ -112,6 +107,5 @@ export function parseTiledMap(json: unknown): MapData | null {
         playerSpawn: spawn,
         zones,
         props: propList,
-        walls,
     };
 }

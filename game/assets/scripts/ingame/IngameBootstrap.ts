@@ -6,8 +6,8 @@ import {
 } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY, screenToGrid } from './Projection';
 import {
-    MapData, ZoneDef, ZoneKind, TileDef, DEV_MAP,
-    buildTileGrid, parseMapDataJson, TILE_ATTR_BLOCKED,
+    MapData, ZoneDef, ZoneKind, ZoneType, TileDef, DEV_MAP,
+    buildTileGrid, buildDungeonIdGrid, parseMapDataJson, TILE_ATTR_BLOCKED,
 } from './MapData';
 import { TileView } from './TileView';
 import { parseTiledMap } from './TiledLoader';
@@ -51,6 +51,7 @@ export class IngameBootstrap extends Component {
     /** 가상화 타일 렌더러 + 타일 데이터 그리드 */
     private tileView: TileView | null = null;
     private tileGrid: TileDef[][] = [];
+    private dungeonIds: number[][] = []; // 던전 인스턴스 ID (1부터) — 이어진 던전 덩어리 단위
     /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
     private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
     private playerSprite: Sprite | null = null;
@@ -189,12 +190,11 @@ export class IngameBootstrap extends Component {
         // 가상화 타일 바닥 — 화면에 보이는 만큼만 노드 생성, 재사용
         this.tileGrid = this.map.tiles ?? buildTileGrid(this.map);
         const R = this.map.groundRadius;
+        this.dungeonIds = buildDungeonIdGrid(this.tileGrid, R);
         this.tileView = new TileView(this.world, this.diamondFrame(), R, (gx, gy) => {
             const row = this.tileGrid[gy + R];
             return row ? row[gx + R] ?? null : null;
         }, this.tileFrames);
-
-        this.buildWalls(this.world);
 
         // 현재 타일 하이라이트 (디자인 목업식 — 칸 단위 스냅, 생고기 레드 틴트)
         this.tileCursor = this.addSprite('TileCursor', this.world, this.diamondFrame(),
@@ -226,6 +226,8 @@ export class IngameBootstrap extends Component {
             inDungeon: () => this.currentZone?.kind === 'dungeon',
             inHub: () => this.currentZone?.kind === 'hub',
             zoneKindAt: (gx, gy) => this.zoneKindAt(gx, gy),
+            dungeonIdAt: (gx, gy) => this.dungeonIdAt(gx, gy),
+            playerDungeonId: () => this.dungeonIdAt(this.pgx, this.pgy),
             hitsWall: (gx, gy) => this.hitsWall(gx, gy),
             groundR: () => this.map.groundRadius,
             ui: {
@@ -244,6 +246,13 @@ export class IngameBootstrap extends Component {
             onPlayerDeath: () => this.respawnPlayer(),
         });
         this.ready = true;
+    }
+
+    /** (gx,gy)의 던전 인스턴스 ID (0=던전 아님) */
+    private dungeonIdAt(gx: number, gy: number): number {
+        const R = this.map.groundRadius;
+        const row = this.dungeonIds[Math.round(gy) + R];
+        return row ? (row[Math.round(gx) + R] ?? 0) : 0;
     }
 
     /** (gx,gy)가 밟고 있는 타일의 zone 속성값 (0=없음) — 존 판정의 원본은 타일 데이터 */
@@ -566,8 +575,6 @@ export class IngameBootstrap extends Component {
     }
 
     // ── 벽 충돌 (축 분리 이동 — 벽에 비스듬히 닿으면 미끄러짐) ──
-    private static readonly PLAYER_RADIUS = 0.35; // 그리드 단위 (임의)
-
     private tryMove(dgx: number, dgy: number) {
         const R = this.map.groundRadius;
         const nx = math.clamp(this.pgx + dgx, -R, R);
@@ -576,40 +583,12 @@ export class IngameBootstrap extends Component {
         if (!this.hitsWall(this.pgx, ny)) this.pgy = ny;
     }
 
+    /** 이동 가능 = "존이 칠해진 타일" 위. 타일 없음/zone 없음(0)/attr 이동불가(1) = 차단 */
     private hitsWall(gx: number, gy: number): boolean {
-        // 타일 이동불가 속성 (attr=1) — 벽의 대체재
         const R = this.map.groundRadius;
         const row = this.tileGrid[Math.round(gy) + R];
         const t = row ? row[Math.round(gx) + R] : undefined;
-        if (t && t.attr === TILE_ATTR_BLOCKED) return true;
-
-        // 벽 사각형 (레거시 데이터 지원 — walls가 있으면 여전히 동작)
-        const r = IngameBootstrap.PLAYER_RADIUS;
-        for (const w of this.map.walls) {
-            if (gx > w.gx - r && gx < w.gx + w.w + r &&
-                gy > w.gy - r && gy < w.gy + w.h + r) return true;
-        }
-        return false;
-    }
-
-    /** 벽 렌더링 — 전체 벽을 Graphics 노드 1개에 그림 */
-    private buildWalls(parent: Node) {
-        if (this.map.walls.length === 0) return;
-        const node = this.makeNode('Walls', parent);
-        const g = node.addComponent(Graphics);
-        g.fillColor = this.color('#5A3A26', 235);
-        g.strokeColor = this.color('#2A1F15', 255);
-        g.lineWidth = 3;
-        for (const w of this.map.walls) {
-            const corners: [number, number][] = [
-                [w.gx, w.gy], [w.gx + w.w, w.gy], [w.gx + w.w, w.gy + w.h], [w.gx, w.gy + w.h],
-            ].map(([gx, gy]) => [isoX(gx, gy), isoY(gx, gy)] as [number, number]);
-            g.moveTo(corners[0][0], corners[0][1]);
-            for (let c = 1; c < corners.length; c++) g.lineTo(corners[c][0], corners[c][1]);
-            g.close();
-        }
-        g.fill();
-        g.stroke();
+        return !t || t.zone === ZoneType.None || t.attr === TILE_ATTR_BLOCKED;
     }
 
     /** 플레이어가 어느 존에 있는지 판정 — 밟고 있는 타일의 zone 속성 기반 */

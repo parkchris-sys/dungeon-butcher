@@ -137,6 +137,7 @@ export class TileView {
         n.addComponent(UITransform).setContentSize(TILE_W, TILE_H);
         const s = n.addComponent(Sprite);
         s.sizeMode = Sprite.SizeMode.CUSTOM;
+        s.trim = false; // 타일 이미지의 투명 모서리 트리밍 방지 (비율 유지)
         s.spriteFrame = this.frame;
         return n;
     }
