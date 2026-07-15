@@ -16,9 +16,9 @@ export class TileRegion extends Component {
 
     @property({
         type: CCInteger,
-        tooltip: '던전 인스턴스 ID — 내보내기 시 이 구역이 덮는 던전 타일에 기록됨.\n'
-            + '몬스터 스폰 설정(DUNGEON_KINDS)의 키. 던전마다 고유 번호 지정 (0 = 미지정 → 자동 부여).\n'
-            + '노드 이름 규칙: d{ID} (예: d1, d2)',
+        tooltip: '지역 고유 ID — 모든 지역이 서로 다른 번호를 가져야 함 (생성 시 자동 부여).\n'
+            + '던전 지역이면 몬스터 스폰 설정(DUNGEON_KINDS)의 키로 사용됨.\n'
+            + '노드 이름은 자유롭게 (예: 슬라임 굴, 시작 마을)',
     })
     regionId = 0;
 }

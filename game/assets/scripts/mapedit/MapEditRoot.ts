@@ -209,6 +209,16 @@ export class MapEditRoot extends Component {
         return g;
     }
 
+    /** 사용 중이지 않은 다음 지역 ID */
+    private nextRegionId(): number {
+        let max = 0;
+        for (const n of this.regionsGroup().children) {
+            const tr = n.getComponent(TileRegion);
+            if (tr && tr.regionId > max) max = tr.regionId;
+        }
+        return max + 1;
+    }
+
     private createRegion() {
         const g = this.regionsGroup();
         const n = new Node(`구역${g.children.length + 1}`);
@@ -220,9 +230,10 @@ export class MapEditRoot extends Component {
         const frame = this.findAnyFrame();
         if (frame) sp.spriteFrame = frame;
         sp.color = new Color(255, 255, 255, 30); // 반투명 — 밑의 타일이 보이게
-        n.addComponent(TileRegion);
+        const tr = n.addComponent(TileRegion);
+        tr.regionId = this.nextRegionId(); // 모든 지역은 고유 ID
         this.ensurePropsGroup(n);
-        console.log('[MapEditRoot] 편집 구역 추가 — 옮기고 크기 잡은 뒤 editTiles 체크');
+        console.log(`[MapEditRoot] 편집 구역 추가 (ID ${tr.regionId}) — 이름은 자유롭게, 위치 잡고 editTiles 체크`);
     }
 
     /** 구역마다 props 하위 그룹 — 배치물은 구역 자식이라 구역과 함께 움직임 */
@@ -616,12 +627,9 @@ export class MapEditRoot extends Component {
             const w = Math.min(REGION_MAX, maxX - minX + 1);
             const h = Math.min(REGION_MAX, maxY - minY + 1);
             counts[z] = (counts[z] || 0) + 1;
-            // 네이밍 규칙: 던전은 d{던전ID} — ID는 데이터(tiles.dungeon)에 기록된 명시값 우선, 없으면 순번
+            // 이름은 자유 라벨 — 기본값만 타입+번호로. ID는 데이터 명시값 우선, 없으면 새 고유 번호
             const explicitId = z === ZoneType.Dungeon ? (this.lastImportDungeonIds.get(start) ?? 0) : 0;
-            const dungeonId = explicitId > 0 ? explicitId : counts[z];
-            const name = z === ZoneType.Dungeon
-                ? `d${dungeonId}`
-                : `${synthZoneDef(z).name}${counts[z]}`;
+            const name = `${synthZoneDef(z).name}${counts[z]}`;
             const n = this.createMarker(group, name, w * B, h * B, '#FFFFFF');
             const sp = n.getComponent(Sprite)!;
             const c = sp.color.clone();
@@ -629,7 +637,7 @@ export class MapEditRoot extends Component {
             sp.color = c;
             n.setPosition((minX - 0.5 + w / 2) * B, (minY - 0.5 + h / 2) * B, 0);
             const tr = n.addComponent(TileRegion);
-            if (z === ZoneType.Dungeon) tr.regionId = dungeonId;
+            tr.regionId = explicitId > 0 ? explicitId : this.nextRegionId();
             this.ensurePropsGroup(n);
             made++;
             if (maxX - minX + 1 > REGION_MAX || maxY - minY + 1 > REGION_MAX) {
@@ -701,6 +709,14 @@ export class MapEditRoot extends Component {
                 w, h,
             });
         }
+        // 지역 ID 검증 — 모든 지역은 고유 ID (중복·미지정은 경고)
+        const seenIds = new Set<number>();
+        for (const r of regionList) {
+            if (r.id <= 0) console.warn(`[MapEditRoot] 지역 '${r.name}'의 ID가 미지정(0) — Inspector에서 지정하세요`);
+            else if (seenIds.has(r.id)) console.warn(`[MapEditRoot] 지역 ID 중복: ${r.id} ('${r.name}') — 고유해야 합니다`);
+            else seenIds.add(r.id);
+        }
+
         const dungeonIdOf = (gx: number, gy: number): number => {
             for (const r of regionList) {
                 if (r.id > 0 && gx >= r.gx && gx < r.gx + r.w && gy >= r.gy && gy < r.gy + r.h) return r.id;

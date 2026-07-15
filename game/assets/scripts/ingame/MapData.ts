@@ -45,10 +45,10 @@ export interface TileDef {
     dungeon?: number; // 던전 인스턴스 ID — 에디터 TileRegion.regionId에서 기록 (0/없음=자동 부여)
 }
 
-/** 편집 구역 정보 — 이름·던전ID·기하. 에디터 왕복 보존 + 게임의 던전 이름 표시용 */
+/** 편집 구역 정보 — 이름·고유ID·기하. 에디터 왕복 보존 + 게임의 지역 이름 표시용 */
 export interface MapRegionInfo {
-    name: string; // 지역 이름 (규칙: 던전 = d{ID})
-    id: number;   // 던전 인스턴스 ID (0 = 던전 아님/미지정)
+    name: string; // 지역 이름 — 자유 라벨 (예: 슬라임 굴, 시작 마을)
+    id: number;   // 지역 고유 ID — 모든 지역 필수·중복 금지. 던전이면 몬스터 스폰 설정의 키
     gx: number;   // 최소 코너 그리드 좌표
     gy: number;
     w: number;    // 타일 수
