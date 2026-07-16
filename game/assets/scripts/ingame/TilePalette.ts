@@ -1,36 +1,54 @@
-/** 테스트 타일 팔레트 — gen_test_tiles.js가 생성 (게임 이미지 tile_1..32.png와 동일한 색) */
+/** 타일 대표색 팔레트 — gen_tiles50.js가 생성 (이미지 50종의 평균색, 프리뷰/폴백용) */
 export const TILE_COLORS: string[] = [
-    '#D34545', // 1
-    '#D37A45', // 2
-    '#D3B045', // 3
-    '#C2D345', // 4
-    '#8CD345', // 5
-    '#57D345', // 6
-    '#45D369', // 7
-    '#45D39E', // 8
-    '#45D3D3', // 9
-    '#459ED3', // 10
-    '#4569D3', // 11
-    '#5745D3', // 12
-    '#8C45D3', // 13
-    '#C245D3', // 14
-    '#D345B0', // 15
-    '#D3457A', // 16
-    '#8C2121', // 17
-    '#8C4921', // 18
-    '#8C7221', // 19
-    '#7F8C21', // 20
-    '#578C21', // 21
-    '#2E8C21', // 22
-    '#218C3C', // 23
-    '#218C64', // 24
-    '#218C8C', // 25
-    '#21648C', // 26
-    '#213C8C', // 27
-    '#2E218C', // 28
-    '#57218C', // 29
-    '#7F218C', // 30
-    '#8C2172', // 31
-    '#8C2149', // 32
+    '#715033', // 1 wood_floor
+    '#392F55', // 2 dungeon_stone
+    '#538142', // 3 grass
+    '#3B5F31', // 4 grass_dark
+    '#6F563B', // 5 dirt
+    '#8A6E4B', // 6 dirt_dry
+    '#C6A96E', // 7 sand
+    '#BFA267', // 8 sand_dune
+    '#686470', // 9 stone_gray
+    '#484450', // 10 stone_dark
+    '#78727F', // 11 cobble
+    '#864838', // 12 brick_red
+    '#868686', // 13 brick_gray
+    '#4275A2', // 14 water
+    '#294E77', // 15 water_deep
+    '#C3D9E6', // 16 ice
+    '#DBE1E7', // 17 snow
+    '#90431F', // 18 lava
+    '#702E15', // 19 lava_dark
+    '#4A5A3A', // 20 swamp
+    '#513F2C', // 21 mud
+    '#5E6B5C', // 22 moss_stone
+    '#847F73', // 23 gravel
+    '#4C3521', // 24 wood_dark
+    '#9D7E56', // 25 wood_light
+    '#8F4038', // 26 carpet_red
+    '#38548F', // 27 carpet_blue
+    '#C0BCC5', // 28 marble
+    '#585663', // 29 marble_dark
+    '#7E818B', // 30 metal
+    '#846855', // 31 metal_rust
+    '#624E9B', // 32 crystal
+    '#3F649C', // 33 crystal_blue
+    '#C4BBA4', // 34 bone
+    '#9B5850', // 35 flesh
+    '#A7584A', // 36 meat_floor
+    '#533E29', // 37 farmland
+    '#423221', // 38 farmland_wet
+    '#487242', // 39 leaves
+    '#9A6C32', // 40 leaves_fall
+    '#545159', // 41 ash
+    '#262231', // 42 obsidian
+    '#AA8634', // 43 gold_floor
+    '#9B8D54', // 44 tatami
+    '#AFA99B', // 45 checker_light
+    '#44403B', // 46 checker_dark
+    '#3E3363', // 47 rune_glow
+    '#528434', // 48 poison
+    '#633033', // 49 blood_stone
+    '#181521', // 50 void
 ];
-export const TILE_IMG_MAX = 32;
+export const TILE_IMG_MAX = 50;
