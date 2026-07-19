@@ -138,8 +138,12 @@ export class IngameBootstrap extends Component {
         });
     }
 
-    /** img ID → 타일 이미지 프레임 */
+    /** img ID → 타일/오브젝트/유닛 이미지 프레임 (maps/tiles·objs·units — {ID}_{이름}.png) */
     private tileFrames = new Map<number, SpriteFrame>();
+    private objFrames = new Map<number, SpriteFrame>();
+    private unitFrames = new Map<number, SpriteFrame>();
+    /** 던전 ID → 스폰 몬스터 종류 (맵 에디터 몬스터 배치에서 파생) */
+    private spawnKinds = new Map<number, string[]>();
 
     /**
      * 아트 텍스처 로드 — 없는 것은 조용히 폴백.
@@ -147,7 +151,7 @@ export class IngameBootstrap extends Component {
      * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
      */
     private loadZoneTextures(done: () => void) {
-        let pending = 2; // 플레이어 잡 + 타일 폴더 스캔
+        let pending = 4; // 플레이어 잡 + 타일·오브젝트·유닛 폴더 스캔
 
         const playerJobs: [string, (f: SpriteFrame) => void][] = [
             ['chars/player_left',  f => { this.playerFrames.left = f; }],
@@ -166,21 +170,26 @@ export class IngameBootstrap extends Component {
             });
         }
 
-        resources.loadDir('maps/tiles', ImageAsset, (err, images) => {
-            if (!err && images) {
-                for (const img of images) {
-                    const m = img.name.match(/^(\d+)_/); // {ID}_{이름}
-                    if (!m) continue;
-                    const tex = new Texture2D();
-                    tex.image = img;
-                    const frame = new SpriteFrame();
-                    frame.texture = tex;
-                    frame.packable = false;
-                    this.tileFrames.set(+m[1], frame);
+        const scanDir = (dir: string, into: Map<number, SpriteFrame>) => {
+            resources.loadDir(dir, ImageAsset, (err, images) => {
+                if (!err && images) {
+                    for (const img of images) {
+                        const m = img.name.match(/^(\d+)_/); // {ID}_{이름}
+                        if (!m) continue;
+                        const tex = new Texture2D();
+                        tex.image = img;
+                        const frame = new SpriteFrame();
+                        frame.texture = tex;
+                        frame.packable = false;
+                        into.set(+m[1], frame);
+                    }
                 }
-            }
-            if (--pending === 0) done();
-        });
+                if (--pending === 0) done();
+            });
+        };
+        scanDir('maps/tiles', this.tileFrames);
+        scanDir('maps/objs', this.objFrames);
+        scanDir('maps/units', this.unitFrames);
     }
 
     private buildWorld() {
@@ -206,8 +215,27 @@ export class IngameBootstrap extends Component {
         this.tileCursor = this.addSprite('TileCursor', this.world, this.diamondFrame(),
             TILE_W, TILE_H, this.color('#C0503F', 100));
 
+        // 맵 에디터 몬스터 배치 → 던전별 스폰 종류 (같은 던전에 여러 종류 배치 가능)
+        this.spawnKinds.clear();
+        for (const m of this.map.monsters ?? []) {
+            const did = this.dungeonIdAt(m.gx, m.gy);
+            if (did === 0) continue; // 던전 밖 배치 — 에디터가 내보내기 시 경고함
+            const arr = this.spawnKinds.get(did) ?? [];
+            if (!arr.includes(m.kind)) arr.push(m.kind);
+            this.spawnKinds.set(did, arr);
+        }
+
         this.entities = this.makeNode('Entities', this.world);
         this.buildProps(this.entities);
+        this.buildObjects(this.entities);
+        this.buildNpcs(this.entities);
+
+        // 플레이어 외형 — 에디터 spawn 마커의 img (maps/units) 지정 시 원화 대체 (좌우 동일 — 방향별 아트는 추후)
+        const skin = this.map.playerImg ? this.unitFrames.get(this.map.playerImg) : undefined;
+        if (skin) {
+            this.playerFrames.left = skin;
+            this.playerFrames.right = skin;
+        }
 
         this.pgx = this.map.playerSpawn.gx;
         this.pgy = this.map.playerSpawn.gy;
@@ -234,6 +262,7 @@ export class IngameBootstrap extends Component {
             zoneKindAt: (gx, gy) => this.zoneKindAt(gx, gy),
             dungeonIdAt: (gx, gy) => this.dungeonIdAt(gx, gy),
             playerDungeonId: () => this.dungeonIdAt(this.pgx, this.pgy),
+            dungeonKindsOf: (id) => this.spawnKinds.get(id) ?? null,
             hitsWall: (gx, gy) => this.hitsWall(gx, gy),
             groundR: () => this.map.groundRadius,
             ui: {
@@ -622,6 +651,59 @@ export class IngameBootstrap extends Component {
 
             const body = this.addSprite('Body', p, this.squareFrame(), prop.w, prop.h, this.color(prop.tint));
             body.setPosition(0, prop.h / 2, 0);
+        }
+    }
+
+    // ── 맵 오브젝트 (타일 단위 배치물 — 에디터 objects 루트) ──
+    private buildObjects(parent: Node) {
+        for (const o of this.map.objects ?? []) {
+            // 발자국(w×h 타일) 중심에 배치 — 아이소 폭/높이 = (w+h)/2 타일
+            const cx = o.gx + (o.w - 1) / 2;
+            const cy = o.gy + (o.h - 1) / 2;
+            const isoW = (o.w + o.h) / 2 * TILE_W;
+            const isoH = (o.w + o.h) / 2 * TILE_H;
+            const p = this.makeNode(`obj_${o.kind}`, parent);
+            p.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
+
+            const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
+                isoW * 0.95, isoH * 0.95, this.color('#000000', 90));
+            shadow.setPosition(0, 0, 0);
+
+            const art = this.objFrames.get(o.img);
+            if (art) {
+                // 이미지 폭 = 발자국 아이소 폭, 높이는 원본 비율. 하단 = 발자국 아래 꼭짓점
+                const bh = isoW * (art.rect.height / art.rect.width);
+                const body = this.addSprite('Body', p, art, isoW, bh, this.color('#FFFFFF'));
+                body.setPosition(0, -isoH / 2 + bh / 2, 0);
+            } else {
+                // 이미지 미지정 — 실루엣 박스 폴백 (에디터 마커와 같은 갈색)
+                const bh = isoW * 0.6;
+                const body = this.addSprite('Body', p, this.squareFrame(), isoW * 0.8, bh, this.color('#8A6A4A'));
+                body.setPosition(0, -isoH / 2 + bh / 2, 0);
+            }
+        }
+    }
+
+    // ── NPC (정적 표시 — 상호작용은 추후) ──
+    private buildNpcs(parent: Node) {
+        const c = IngameBootstrap.CHAR_PX;
+        for (const u of this.map.npcs ?? []) {
+            const p = this.makeNode(`npc_${u.kind}`, parent);
+            p.setPosition(isoX(u.gx, u.gy), isoY(u.gx, u.gy), 0);
+
+            const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
+                TILE_W * 0.55, TILE_H * 0.55, this.color('#000000', 90));
+            shadow.setPosition(0, 0, 0);
+
+            const art = this.unitFrames.get(u.img);
+            let body: Node;
+            if (art) {
+                const w = c * (art.rect.width / art.rect.height);
+                body = this.addSprite('Body', p, art, w, c, this.color('#FFFFFF'));
+            } else {
+                body = this.addSprite('Body', p, this.squareFrame(), c * 0.6, c * 0.8, this.color('#3BAF6E'));
+            }
+            body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
         }
     }
 

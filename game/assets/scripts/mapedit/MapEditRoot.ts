@@ -6,8 +6,12 @@ import {
 import { EDITOR } from 'cc/env';
 import { MapTile } from './MapTile';
 import { TileRegion } from './TileRegion';
+import { MapUnit } from './MapUnit';
+import { MapObject } from './MapObject';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
-import { parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo } from '../ingame/MapData';
+import {
+    parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo, MapObjectDef, MapUnitDef,
+} from '../ingame/MapData';
 import { TILE_COLORS } from '../ingame/TilePalette';
 import { TILE_STYLE } from '../ingame/TileView';
 
@@ -42,6 +46,15 @@ export class MapEditRoot extends Component {
     @property({ type: CCBoolean, tooltip: '체크 = 타일 편집 구역 추가 (8×8)' })
     addRegion = false;
 
+    @property({ type: CCBoolean, tooltip: '체크 = 오브젝트 추가 (objects 루트) — img 외형·kind 종류·tileW/H 타일 단위 크기' })
+    addObject = false;
+
+    @property({ type: CCBoolean, tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: slime)' })
+    addMonster = false;
+
+    @property({ type: CCBoolean, tooltip: '체크 = NPC 추가 (npcs 루트) — img 외형·kind 자유 라벨' })
+    addNpc = false;
+
     @property({ type: CCBoolean, tooltip: '체크 = resources/maps/mapdata.json 내보내기' })
     exportJson = false;
 
@@ -73,8 +86,12 @@ export class MapEditRoot extends Component {
         this.cleanupLegacy();
         this.snapRegions();
         this.syncActiveRegion();
+        this.syncPlacements();
 
         if (this.addRegion) { this.addRegion = false; this.createRegion(); }
+        if (this.addObject) { this.addObject = false; this.createObject(); }
+        if (this.addMonster) { this.addMonster = false; this.createUnit('monsters', '몬스터', 'slime'); }
+        if (this.addNpc) { this.addNpc = false; this.createUnit('npcs', 'NPC', 'npc'); }
         if (this.clearOverrides) { this.clearOverrides = false; this.tileOverridesJson = '{}'; this.refreshTileNodes(); }
         if (this.exportJson) { this.exportJson = false; this.doExport(); }
         if (this.importJson) { this.importJson = false; this.doImport(); }
@@ -265,6 +282,46 @@ export class MapEditRoot extends Component {
                 if (w !== ut.contentSize.width || h !== ut.contentSize.height) ut.setContentSize(w, h);
             }
         }
+    }
+
+    // ── 배치물 (종류별 루트: objects / monsters / npcs / spawn) ──
+    /**
+     * 종류별 루트 보장 + 자식 노드에 편집 컴포넌트 자동 부착.
+     * 디자이너가 노드를 복제/신규 생성해도 컴포넌트가 저절로 붙어 바로 편집 가능.
+     */
+    private syncPlacements() {
+        const objects = this.ensureGroup('objects');
+        for (const n of objects.children) {
+            if (n.name.startsWith('_')) continue;
+            if (!n.getComponent(MapObject)) n.addComponent(MapObject);
+        }
+        for (const rootName of ['monsters', 'npcs', 'spawn']) {
+            const root = this.ensureGroup(rootName);
+            for (const n of root.children) {
+                if (n.name.startsWith('_')) continue;
+                if (!n.getComponent(MapUnit)) {
+                    const u = n.addComponent(MapUnit);
+                    u.kind = rootName === 'spawn' ? 'player'
+                        : rootName === 'monsters' ? 'slime' : 'npc';
+                }
+            }
+        }
+    }
+
+    private createObject() {
+        const root = this.ensureGroup('objects');
+        const n = this.createMarker(root, `오브젝트${root.children.length + 1}`, B, B, '#8A6A4A');
+        const o = n.addComponent(MapObject);
+        o.kind = 'obj';
+        console.log('[MapEditRoot] 오브젝트 추가 — Inspector에서 img(외형)·kind(종류)·tileW/H(타일 크기) 설정');
+    }
+
+    private createUnit(rootName: string, label: string, kind: string) {
+        const root = this.ensureGroup(rootName);
+        const n = this.createMarker(root, `${label}${root.children.length + 1}`, B - 4, B - 4, '#FFFFFF');
+        const u = n.addComponent(MapUnit);
+        u.kind = kind;
+        console.log(`[MapEditRoot] ${label} 추가 — Inspector에서 img(외형)·kind(종류) 설정`);
     }
 
     // ── 활성 구역 전환 + 타일 노드 재사용 ──
@@ -468,6 +525,9 @@ export class MapEditRoot extends Component {
         shiftChildren(this.node.getChildByName('spawn'));
         shiftChildren(this.node.getChildByName('props'));
         shiftChildren(this.node.getChildByName('regions'));
+        shiftChildren(this.node.getChildByName('objects'));
+        shiftChildren(this.node.getChildByName('monsters'));
+        shiftChildren(this.node.getChildByName('npcs'));
 
         // 활성 구역 화면 재로드 (이동 감지 로직이 이중 이동시키지 않게 키 갱신)
         if (this.activeRegion) {
@@ -535,6 +595,35 @@ export class MapEditRoot extends Component {
             spawnNode = this.createMarker(spawnGroup, '플레이어시작', 24, 24, '#FFFFFF');
         }
         spawnNode.setPosition(map.playerSpawn.gx * B, map.playerSpawn.gy * B, 0);
+        const spawnUnit = spawnNode.getComponent(MapUnit) ?? spawnNode.addComponent(MapUnit);
+        spawnUnit.kind = 'player';
+        spawnUnit.img = map.playerImg ?? 0;
+
+        // 오브젝트·몬스터·NPC — 루트 비우고 데이터로 재생성
+        const objRoot = this.ensureGroup('objects');
+        for (const c of [...objRoot.children]) c.destroy();
+        for (const o of map.objects ?? []) {
+            const n = this.createMarker(objRoot, o.kind, o.w * B, o.h * B, '#8A6A4A');
+            n.setPosition((o.gx - 0.5 + o.w / 2) * B, (o.gy - 0.5 + o.h / 2) * B, 0);
+            const comp = n.addComponent(MapObject);
+            comp.kind = o.kind;
+            comp.img = o.img;
+            comp.tileW = o.w;
+            comp.tileH = o.h;
+        }
+        const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
+            const root = this.ensureGroup(rootName);
+            for (const c of [...root.children]) c.destroy();
+            for (const u of list ?? []) {
+                const n = this.createMarker(root, u.kind, B - 4, B - 4, '#FFFFFF');
+                n.setPosition(u.gx * B, u.gy * B, 0);
+                const comp = n.addComponent(MapUnit);
+                comp.kind = u.kind;
+                comp.img = u.img;
+            }
+        };
+        restoreUnits('monsters', map.monsters);
+        restoreUnits('npcs', map.npcs);
 
         // 배치물 — 기존 전부 비우고(전역+구역) 전역 그룹에 재생성
         const globalProps = this.ensureGroup('props');
@@ -554,7 +643,8 @@ export class MapEditRoot extends Component {
         // 구역 복원: 데이터에 저장된 구역(이름·ID·기하) 우선, 없으면 클러스터 파생(레거시)
         if (map.regions && map.regions.length > 0) this.restoreRegionsFromList(map.regions);
         else this.rebuildRegionsFromData();
-        console.log(`[MapEditRoot] 불러오기 완료 — ${this.mapTiles}×${this.mapTiles}, 데이터 타일 ${Object.keys(ov).length}개, 배치물 ${map.props.length}개`);
+        console.log(`[MapEditRoot] 불러오기 완료 — ${this.mapTiles}×${this.mapTiles}, 데이터 타일 ${Object.keys(ov).length}개, `
+            + `오브젝트 ${map.objects?.length ?? 0}·몬스터 ${map.monsters?.length ?? 0}·NPC ${map.npcs?.length ?? 0}`);
     }
 
     /** 데이터에 저장된 구역 목록으로 편집 구역 복원 — 이름·던전ID·기하 그대로 */
@@ -735,11 +825,53 @@ export class MapEditRoot extends Component {
                 dungeon.push(z === ZoneType.Dungeon ? dungeonIdOf(gx, gy) : 0);
             }
         }
+        // 배치물 수집 — 오브젝트(타일 단위 기하)·몬스터·NPC·플레이어 외형
+        const objectList: MapObjectDef[] = [];
+        for (const n of this.node.getChildByName('objects')?.children ?? []) {
+            if (n.name.startsWith('_')) continue;
+            const o = n.getComponent(MapObject);
+            if (!o) continue;
+            objectList.push({
+                kind: o.kind || 'obj', img: o.img,
+                gx: Math.floor(n.position.x / B - o.tileW / 2 + 0.5),
+                gy: Math.floor(n.position.y / B - o.tileH / 2 + 0.5),
+                w: o.tileW, h: o.tileH,
+            });
+        }
+        const collectUnits = (rootName: string): MapUnitDef[] => {
+            const list: MapUnitDef[] = [];
+            for (const n of this.node.getChildByName(rootName)?.children ?? []) {
+                if (n.name.startsWith('_')) continue;
+                const u = n.getComponent(MapUnit);
+                if (!u) continue;
+                list.push({
+                    kind: u.kind || 'unknown', img: u.img,
+                    gx: Math.round(n.position.x / B),
+                    gy: Math.round(n.position.y / B),
+                });
+            }
+            return list;
+        };
+        const monsterList = collectUnits('monsters');
+        const npcList = collectUnits('npcs');
+        for (const m of monsterList) {
+            if (dungeonIdOf(m.gx, m.gy) === 0) {
+                console.warn(`[MapEditRoot] 몬스터 '${m.kind}'(${m.gx},${m.gy})가 지역 밖에 있음 — 스폰 설정에서 제외될 수 있음`);
+            }
+        }
+        // 플레이어 외형 — spawn 마커의 MapUnit.img
+        const spawnUnit = this.node.getChildByName('spawn')
+            ?.children.find(n => !n.name.startsWith('_'))?.getComponent(MapUnit);
+
         const payload = {
             version: 2, size: N,
-            spawn: map.playerSpawn, props: map.props,
+            spawn: { ...map.playerSpawn, img: spawnUnit?.img ?? 0 },
+            props: map.props,
             tiles: { img, zone, attr, dungeon },
             regions: regionList,
+            objects: objectList,
+            monsters: monsterList,
+            npcs: npcList,
         };
         Editor.Message.request('asset-db', 'create-asset',
             url, JSON.stringify(payload), { overwrite: true })

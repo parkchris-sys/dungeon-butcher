@@ -25,10 +25,6 @@ const DUNGEON_KINDS: Record<number, string[]> = {
     // 예: 1: ['slime'], 2: ['slime', 'goblin'],
 };
 const DEFAULT_KINDS = ['slime'];
-function pickKind(dungeonId: number): string {
-    const kinds = DUNGEON_KINDS[dungeonId] ?? DEFAULT_KINDS;
-    return kinds[Math.floor(Math.random() * kinds.length)];
-}
 
 export interface CombatUi {
     makeNode(name: string, parent: Node): Node;
@@ -53,6 +49,8 @@ export interface CombatHost {
     zoneKindAt(gx: number, gy: number): 'hub' | 'dungeon' | 'corridor' | null;
     dungeonIdAt(gx: number, gy: number): number;  // 던전 인스턴스 ID (0=던전 아님)
     playerDungeonId(): number;
+    /** 던전별 스폰 종류 — 맵 에디터 몬스터 배치에서 파생 (null=미지정 → 코드 표/기본값) */
+    dungeonKindsOf(dungeonId: number): string[] | null;
     hitsWall(gx: number, gy: number): boolean;
     groundR(): number;
     ui: CombatUi;
@@ -112,6 +110,13 @@ export class CombatSystem {
         this.stackRoot = host.ui.makeNode('BackStack', host.playerNode());
         host.onMeatCount(0, BAL.stack.limit);
         host.onHp(this.hp, BAL.player.maxHp);
+    }
+
+    /** 던전별 스폰 종류 — 우선순위: 에디터 몬스터 배치 > 코드 표(DUNGEON_KINDS) > 기본값 */
+    private pickKind(dungeonId: number): string {
+        const kinds = this.host.dungeonKindsOf(dungeonId)
+            ?? DUNGEON_KINDS[dungeonId] ?? DEFAULT_KINDS;
+        return kinds[Math.floor(Math.random() * kinds.length)];
     }
 
     /** 활성 개체 존재 여부 — 부트스트랩이 매 프레임 정렬할지 판단용 */
@@ -176,7 +181,7 @@ export class CombatSystem {
         s.gx = gx; s.gy = gy;
         s.homeGx = gx; s.homeGy = gy;
         s.dungeonId = this.host.dungeonIdAt(gx, gy);
-        s.kind = pickKind(s.dungeonId); // 던전별 스폰 종류 (현재 slime만 — 종류별 외형/스탯은 추후)
+        s.kind = this.pickKind(s.dungeonId); // 던전별 스폰 종류 (현재 slime만 — 종류별 외형/스탯은 추후)
         s.hp = BAL.slime.hp;
         s.flashT = 0; s.dieT = 0; s.alive = true;
         s.node.active = true;

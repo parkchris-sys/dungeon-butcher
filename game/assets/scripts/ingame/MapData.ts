@@ -45,6 +45,24 @@ export interface TileDef {
     dungeon?: number; // 던전 인스턴스 ID — 에디터 TileRegion.regionId에서 기록 (0/없음=자동 부여)
 }
 
+/** 맵 오브젝트 — 타일 위에 올라가는 배치물. 위치·크기 모두 타일 단위 (props의 후속 — px 실루엣 대체 예정) */
+export interface MapObjectDef {
+    kind: string; // 종류 라벨 (자유 — 예: crate, tree, meat_rack)
+    img: number;  // 외형 — resources/maps/objs/{ID}_{이름}.png의 ID (0=이미지 없음, 실루엣 표시)
+    gx: number;   // 차지 영역 최소 코너 (타일)
+    gy: number;
+    w: number;    // 타일 단위 크기
+    h: number;
+}
+
+/** 유닛 — 몬스터/NPC 배치. 타일 1칸 점유, 위치는 타일 중심 */
+export interface MapUnitDef {
+    kind: string; // 종류 — 몬스터면 스폰 종류 키(slime 등), NPC면 자유 라벨
+    img: number;  // 외형 — resources/maps/units/{ID}_{이름}.png의 ID (0=기본)
+    gx: number;
+    gy: number;
+}
+
 /** 편집 구역 정보 — 이름·고유ID·기하. 에디터 왕복 보존 + 게임의 지역 이름 표시용 */
 export interface MapRegionInfo {
     name: string; // 지역 이름 — 자유 라벨 (예: 슬라임 굴, 시작 마을)
@@ -67,6 +85,10 @@ export interface MapData {
     props: PropDef[];
     tiles?: TileDef[][];              // [gy+R][gx+R] — 없으면 buildTileGrid로 존에서 파생
     regions?: MapRegionInfo[];        // 편집 구역 (이름·던전ID·기하) — 에디터 왕복 + 던전 이름 표시
+    objects?: MapObjectDef[];         // 타일 위 오브젝트 (타일 단위 크기)
+    monsters?: MapUnitDef[];          // 몬스터 배치 — kind가 그 던전의 스폰 종류에 추가됨
+    npcs?: MapUnitDef[];              // NPC 배치 (정적 표시 — 상호작용은 추후)
+    playerImg?: number;               // 플레이어 외형 — maps/units의 ID (0=기본 원화)
 }
 
 /** 존 목록에서 (gx,gy)가 속한 존 번호(1부터)를 찾음 — 0=없음. zones는 면적 오름차순 전제 */
@@ -96,10 +118,11 @@ export function synthZoneDef(zi: number): ZoneDef {
 export function parseMapDataJson(j: unknown): MapData | null {
     const d = j as {
         version?: number; size?: number;
-        spawn?: { gx: number; gy: number };
+        spawn?: { gx: number; gy: number; img?: number };
         zones?: ZoneDef[]; props?: PropDef[];
         tiles?: { img: number[]; zone: number[]; attr: number[]; dungeon?: number[] };
         regions?: MapRegionInfo[];
+        objects?: MapObjectDef[]; monsters?: MapUnitDef[]; npcs?: MapUnitDef[];
     };
     if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
     if ((!d.zones || d.zones.length === 0) && !d.tiles) return null; // 존도 타일도 없으면 무효
@@ -143,6 +166,10 @@ export function parseMapDataJson(j: unknown): MapData | null {
         props: d.props ?? [],
         tiles,
         regions: d.regions,
+        objects: d.objects ?? [],
+        monsters: d.monsters ?? [],
+        npcs: d.npcs ?? [],
+        playerImg: d.spawn?.img ?? 0,
     };
 }
 
