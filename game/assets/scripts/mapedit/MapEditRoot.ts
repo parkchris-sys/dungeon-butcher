@@ -71,6 +71,10 @@ export class MapEditRoot extends Component {
     @property({ type: CCBoolean, tooltip: '체크 = mapdata.json을 에디터로 불러오기 ⚠️타일·스폰·배치물을 파일 내용으로 덮어씀 (구역 마커는 유지)' })
     importJson = false;
 
+    @property({ type: CCBoolean, tooltip: '체크 = 새로고침: 남아있는 구역 노드 기준으로 타일 데이터 정리\n'
+        + '(삭제된 구역의 잔상 타일 제거 — 구역 사각형 밖 타일 삭제)' })
+    refreshData = false;
+
     @property({ type: CCBoolean, tooltip: '체크 = 타일 수정분 전체 초기화 (존 기본값으로)' })
     clearOverrides = false;
 
@@ -105,6 +109,7 @@ export class MapEditRoot extends Component {
         if (this.addTrigger) { this.addTrigger = false; this.createTrigger(); }
         if (this.addMonster) { this.addMonster = false; this.createUnit('monsters', '몬스터', 'slime'); }
         if (this.addNpc) { this.addNpc = false; this.createUnit('npcs', 'NPC', 'customer'); }
+        if (this.refreshData) { this.refreshData = false; this.pruneOrphanTiles(); }
         if (this.clearOverrides) { this.clearOverrides = false; this.tileOverridesJson = '{}'; this.refreshTileNodes(); }
         if (this.exportJson) { this.exportJson = false; this.doExport(); }
         if (this.importJson) { this.importJson = false; this.doImport(); }
@@ -314,6 +319,50 @@ export class MapEditRoot extends Component {
             this.node.addChild(g);
         }
         return g;
+    }
+
+    /** 현재 구역 노드들의 타일 사각형 목록 (gx,gy=최소 코너, w,h=타일 수) */
+    private regionRects(): { gx: number; gy: number; w: number; h: number }[] {
+        const rects: { gx: number; gy: number; w: number; h: number }[] = [];
+        for (const n of this.regionsGroup().children) {
+            const ut = n.getComponent(UITransform);
+            if (!ut) continue;
+            const w = Math.round(ut.contentSize.width / B);
+            const h = Math.round(ut.contentSize.height / B);
+            rects.push({
+                gx: Math.floor(n.position.x / B - w / 2 + 0.5),
+                gy: Math.floor(n.position.y / B - h / 2 + 0.5),
+                w, h,
+            });
+        }
+        return rects;
+    }
+
+    /**
+     * 새로고침 — 남아있는 구역 노드 기준으로 타일 데이터 정리.
+     * 어느 구역 사각형에도 속하지 않는 타일(삭제/축소된 구역의 잔상)을 제거한다.
+     * (오브젝트·트리거·유닛·구역은 노드에서 직접 내보내므로 노드를 지우면 잔상이 없음 — 타일만 좌표 저장이라 정리 필요)
+     */
+    private pruneOrphanTiles(): number {
+        if (this.activeRegion) this.commitTiles(this.activeRegion);
+        const rects = this.regionRects();
+        const ov = this.overrides();
+        const kept: Record<string, number[]> = {};
+        let dropped = 0;
+        for (const k of Object.keys(ov)) {
+            const [gx, gy] = k.split(',').map(Number);
+            const inside = rects.some(r => gx >= r.gx && gx < r.gx + r.w && gy >= r.gy && gy < r.gy + r.h);
+            if (inside) kept[k] = ov[k];
+            else dropped++;
+        }
+        this.tileOverridesJson = JSON.stringify(kept);
+        this.lastPreviewKey = ''; // 데이터 프리뷰 다시 그림
+        if (this.activeRegion) {
+            this.layoutTiles(this.activeRegion);
+            this.lastRegionKey = this.regionKey(this.activeRegion);
+        }
+        console.log(`[MapEditRoot] 새로고침 — 구역 밖 잔상 타일 ${dropped}개 제거 (남은 ${Object.keys(kept).length}개)`);
+        return dropped;
     }
 
     /** 사용 중이지 않은 다음 지역 ID */
@@ -991,6 +1040,7 @@ export class MapEditRoot extends Component {
     // ── 내보내기 (v2 — 존 사각형 없음, 타일 zone값이 존의 원본) ──
     private doExport(url = 'db://assets/resources/maps/mapdata.json') {
         if (this.activeRegion) this.commitTiles(this.activeRegion); // 열려 있는 편집분 반영
+        this.pruneOrphanTiles(); // 삭제된 구역의 잔상 타일이 저장되지 않게 정리
         const map = parseMapRoot(this.node); // 벽·배치물·스폰
         if (!map) {
             console.warn('[MapEditRoot] 내보내기 실패 — MapRoot 구조가 올바르지 않습니다');
