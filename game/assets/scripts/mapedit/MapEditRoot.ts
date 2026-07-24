@@ -47,6 +47,9 @@ export class MapEditRoot extends Component {
     @property({ type: CCInteger, tooltip: '맵 한 변 타일 수 (홀수 권장)' })
     mapTiles = 49;
 
+    @property({ type: CCBoolean, tooltip: '배치 기준 격자 줄 표시 on/off (항상 최상위에 그려짐)' })
+    showGrid = true;
+
     @property({ type: CCBoolean, tooltip: '체크 = 타일 편집 구역 추가 (8×8)' })
     addRegion = false;
 
@@ -354,6 +357,12 @@ export class MapEditRoot extends Component {
         }
         const globalObjects = this.node.getChildByName('objects');
         if (globalObjects) globalObjects.setSiblingIndex(this.node.children.length - 1);
+        // 배치 기준 격자 — 항상 맨 위(오브젝트보다도 위) + on/off 토글
+        const grid = this.node.getChildByName('_격자');
+        if (grid) {
+            grid.active = this.showGrid;
+            grid.setSiblingIndex(this.node.children.length - 1);
+        }
     }
 
     /** 구역마다 objects 하위 그룹 — 종속 오브젝트가 구역 자식이라 구역과 함께 움직임 */
