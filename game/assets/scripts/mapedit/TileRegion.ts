@@ -1,4 +1,4 @@
-import { _decorator, Component, CCBoolean, CCInteger } from 'cc';
+import { _decorator, Component, CCBoolean, CCInteger, CCFloat } from 'cc';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
@@ -21,4 +21,17 @@ export class TileRegion extends Component {
             + '노드 이름은 자유롭게 (예: 슬라임 굴, 시작 마을)',
     })
     regionId = 0;
+
+    @property({ type: CCInteger, tooltip: '통짜 바닥 이미지 ID — resources/maps/floors/{ID}_{이름}.png (0=없음).\n'
+        + '타일마다 이미지를 지정하는 대신, 이 구역 전체를 덮는 큰 바닥 그림 1장을 지정합니다.' })
+    floorImg = 0;
+
+    @property({ type: CCFloat, tooltip: '바닥 이미지 배율 (기본 1 — 원본 픽셀 크기 기준). 크기를 키우거나 줄입니다.' })
+    floorScale = 1;
+
+    @property({ type: CCInteger, tooltip: '바닥 이미지 X offset(px) — 구역 중심 기준으로 좌우 미세 조정' })
+    floorOffX = 0;
+
+    @property({ type: CCInteger, tooltip: '바닥 이미지 Y offset(px) — 구역 중심 기준으로 상하 미세 조정' })
+    floorOffY = 0;
 }

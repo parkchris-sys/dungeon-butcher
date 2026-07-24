@@ -93,6 +93,11 @@ export interface MapRegionInfo {
     gy: number;
     w: number;    // 타일 수
     h: number;
+    // 통짜 바닥 이미지 — 타일별 img 매핑을 대체 (구역 하나에 큰 바닥 그림 1장)
+    floorImg?: number;   // resources/maps/floors/{ID}_{이름}.png의 ID (0/없음=이미지 없음)
+    floorScale?: number; // 이미지 배율 (기본 1 — 원본 픽셀 크기 기준)
+    floorOffX?: number;  // 화면 X offset(px) — 구역 중심 기준 (아이소 화면 좌표)
+    floorOffY?: number;  // 화면 Y offset(px)
 }
 
 /** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */

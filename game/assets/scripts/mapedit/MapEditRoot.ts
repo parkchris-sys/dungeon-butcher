@@ -9,12 +9,15 @@ import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
 import { MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf } from './MapTrigger';
+import { ensureFloorFrames, floorFrame } from './TileFrameCache';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
 import {
     parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo, MapObjectDef, MapUnitDef, MapTriggerDef,
 } from '../ingame/MapData';
-import { TILE_COLORS } from '../ingame/TilePalette';
-import { TILE_STYLE } from '../ingame/TileView';
+import { TILE_W, TILE_H } from '../ingame/Projection';
+
+/** 아이소 카운터 트랜스폼 배율 — 게임 px → 에디터 _img 크기 (타일 _img와 동일 기준) */
+const ISO_K = 1 / (2 * Math.SQRT2);
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
@@ -91,6 +94,7 @@ export class MapEditRoot extends Component {
         this.snapRegions();
         this.syncActiveRegion();
         this.syncPlacements();
+        this.ensureFloorPreviews();
 
         if (this.addRegion) { this.addRegion = false; this.createRegion(); }
         if (this.addObject) { this.addObject = false; this.createObject(); }
@@ -194,11 +198,13 @@ export class MapEditRoot extends Component {
         const ov = this.overrides();
         // 색깔별로 모아 그리기 (fill 호출 최소화)
         const byColor = new Map<string, string[]>();
+        const attrTint: Record<number, string> = { 1: '#B03A30', 2: '#3E86C0', 3: '#E0A93B' };
+        const zoneTint: Record<number, string> = { 0: '#2A2A34', 1: '#4E3827', 2: '#3C3159', 3: '#3A3A44' };
         for (const key of Object.keys(ov)) {
-            const [img, attr] = [ov[key][0] ?? 0, ov[key][1] ?? 0];
-            const attrTint: Record<number, string> = { 1: '#B03A30', 2: '#3E86C0', 3: '#E0A93B' };
-            const hex = attrTint[attr]
-                ?? (TILE_COLORS[img - 1] ?? (TILE_STYLE[img] ?? TILE_STYLE[0])[0]);
+            const attr = ov[key][1] ?? 0;
+            const zone = ov[key][2] ?? 0;
+            // 속성이 우선(경로 강조), 없으면 존 색 — 실제 바닥 그림은 구역 통짜 이미지가 담당
+            const hex = attrTint[attr] ?? zoneTint[zone] ?? zoneTint[0];
             let list = byColor.get(hex);
             if (!list) byColor.set(hex, list = []);
             list.push(key);
@@ -212,6 +218,62 @@ export class MapEditRoot extends Component {
                 g.rect(gx * B - B / 2 + 1, gy * B - B / 2 + 1, B - 2, B - 2);
             }
             g.fill();
+        }
+    }
+
+    /**
+     * 구역별 통짜 바닥 이미지 프리뷰 — 게임과 같은 모양으로 (아이소 카운터 트랜스폼).
+     * 타일별 이미지 대신 구역 하나에 큰 바닥 그림 1장. 값이 바뀔 때만 다시 만든다.
+     * 별도 그룹(_바닥이미지)에 둬서 구역 마커의 반투명 알파가 상속되지 않게 한다.
+     */
+    private lastFloorKey = '';
+    private ensureFloorPreviews() {
+        ensureFloorFrames();
+        let group = this.node.getChildByName('_바닥이미지');
+        if (!group) {
+            group = new Node('_바닥이미지');
+            group.hideFlags = CCObject.Flags.DontSave; // 런타임 프레임 — 씬 저장 금지
+            group.layer = Layers.Enum.UI_2D;
+            this.node.addChild(group);
+            group.setSiblingIndex(3); // 데이터프리뷰 위, 구역 마커 아래
+            this.lastFloorKey = '';
+        }
+
+        // 서명 — 구역 위치 + 바닥 파라미터 + 로드된 프레임 크기. 바뀔 때만 재생성
+        let sig = '';
+        for (const n of this.regionsGroup().children) {
+            const tr = n.getComponent(TileRegion);
+            if (!tr || !tr.floorImg) continue;
+            const f = floorFrame(tr.floorImg);
+            sig += `${n.position.x},${n.position.y},${tr.floorImg},${tr.floorScale},`
+                + `${tr.floorOffX},${tr.floorOffY},${f ? f.rect.width : 0}x${f ? f.rect.height : 0};`;
+        }
+        if (sig === this.lastFloorKey) return;
+        this.lastFloorKey = sig;
+
+        for (const c of [...group.children]) c.destroy();
+        for (const n of this.regionsGroup().children) {
+            const tr = n.getComponent(TileRegion);
+            if (!tr || !tr.floorImg) continue;
+            const f = floorFrame(tr.floorImg);
+            if (!f) continue;
+            const scale = tr.floorScale || 1;
+            // 화면 px offset → 타일 offset(screenToGrid) → 청사진 로컬 (게임 isoX/isoY와 일치)
+            const offGx = tr.floorOffX / TILE_W + tr.floorOffY / TILE_H;
+            const offGy = -tr.floorOffX / TILE_W + tr.floorOffY / TILE_H;
+            const node = new Node('_floor');
+            node.hideFlags = CCObject.Flags.DontSave;
+            node.layer = Layers.Enum.UI_2D;
+            group.addChild(node);
+            node.setPosition(n.position.x + offGx * B, n.position.y + offGy * B, 0);
+            node.angle = -45;               // MapRoot의 +45 상쇄 → 업라이트
+            node.setScale(1, 2, 1);         // _isoview scaleY 0.5 상쇄
+            const ut = node.addComponent(UITransform);
+            ut.setContentSize(f.rect.width * scale * ISO_K, f.rect.height * scale * ISO_K);
+            const sp = node.addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            sp.trim = false;
+            sp.spriteFrame = f;
         }
     }
 
@@ -706,6 +768,10 @@ export class MapEditRoot extends Component {
             n.setPosition((r.gx - 0.5 + r.w / 2) * B, (r.gy - 0.5 + r.h / 2) * B, 0);
             const tr = n.addComponent(TileRegion);
             tr.regionId = r.id;
+            tr.floorImg = r.floorImg ?? 0;
+            tr.floorScale = r.floorScale ?? 1;
+            tr.floorOffX = r.floorOffX ?? 0;
+            tr.floorOffY = r.floorOffY ?? 0;
             this.ensurePropsGroup(n);
         }
         console.log(`[MapEditRoot] 구역 복원: ${list.length}개 (데이터 저장분)`);
@@ -840,6 +906,10 @@ export class MapEditRoot extends Component {
                 gx: Math.floor(n.position.x / B - w / 2 + 0.5),
                 gy: Math.floor(n.position.y / B - h / 2 + 0.5),
                 w, h,
+                floorImg: tr.floorImg || undefined,
+                floorScale: tr.floorImg ? tr.floorScale : undefined,
+                floorOffX: tr.floorImg ? tr.floorOffX : undefined,
+                floorOffY: tr.floorImg ? tr.floorOffY : undefined,
             });
         }
         // 지역 ID 검증 — 모든 지역은 고유 ID (중복·미지정은 경고)

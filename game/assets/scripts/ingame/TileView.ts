@@ -1,20 +1,23 @@
 import { Node, Sprite, SpriteFrame, UITransform, Color, Layers, view } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY } from './Projection';
 import { TileDef } from './MapData';
-import { TILE_COLORS } from './TilePalette';
 
 /**
  * 가상화 타일 렌더러 — 재사용 스크롤 뷰 방식.
  * 화면(+여유분)에 보이는 타일만 노드로 만들고, 화면 밖으로 나가면 풀에 반납해
  * 새로 들어오는 타일에 재사용한다. 노드 수 = 화면에 그려지는 만큼으로 고정(맵 크기 무관).
  * 모든 타일이 같은 마름모 프레임을 공유(틴트만 다름) → 드로우콜 1 유지.
+ *
+ * 실제 바닥 그림은 이제 구역(TileRegion)의 통짜 바닥 이미지가 담당한다. 여기서는
+ * 바닥 이미지가 없는 곳에서도 지형이 보이도록 **존 색 베이스**만 깔아 준다.
  */
 
-/** 타일 이미지 ID → 틴트 2색(체커 명암) — 아트 확정 시 이미지 프레임 테이블로 교체 (임의) */
+/** 존(zone) → 베이스 틴트 2색(체커 명암) — 통짜 바닥 이미지가 없을 때의 바탕 */
 export const TILE_STYLE: Record<number, [string, string]> = {
-    0: ['#232330', '#1E1E29'], // 기본(존 밖)
+    0: ['#232330', '#1E1E29'], // 존 없음
     1: ['#4E3827', '#453122'], // 마을 — 목재 톤
     2: ['#3C3159', '#352B4F'], // 던전 — 석재 톤
+    3: ['#34343E', '#2E2E38'], // 통로
 };
 
 const MARGIN = 2; // 화면 가장자리 여유 타일 수
@@ -33,19 +36,14 @@ export class TileView {
     private lastKey = '';
     private colorCache = new Map<string, Color>();
 
-    /** img ID → 타일 이미지 프레임 (resources/maps/tiles/tile_<id>.png — 없으면 틴트 폴백) */
-    private frames: Map<number, SpriteFrame>;
-
     constructor(parent: Node, diamondFrame: SpriteFrame, groundR: number,
-        tileAt: (gx: number, gy: number) => TileDef | null,
-        frames?: Map<number, SpriteFrame>) {
+        tileAt: (gx: number, gy: number) => TileDef | null) {
         this.container = new Node('Tiles');
         this.container.layer = Layers.Enum.UI_2D;
         parent.addChild(this.container);
         this.frame = diamondFrame;
         this.groundR = groundR;
         this.tileAt = tileAt;
-        this.frames = frames ?? new Map();
     }
 
     /** 카메라 중심(그리드 좌표)과 줌으로 갱신 — 중심 타일이 바뀔 때만 재계산 */
@@ -113,19 +111,10 @@ export class TileView {
             node.setPosition(isoX(gx, gy), isoY(gx, gy), 0);
             const sp = node.getComponent(Sprite)!;
             const parityDark = ((gx + gy) % 2 + 2) % 2 === 1;
-            const imgFrame = this.frames.get(tile.img);
-            if (imgFrame) {
-                // 실제 타일 이미지 — 체커 가독성은 밝기 틴트로
-                sp.spriteFrame = imgFrame;
-                sp.color = this.cachedColor(parityDark ? '#DFDFDF' : '#FFFFFF');
-            } else if (TILE_COLORS[tile.img - 1]) {
-                sp.spriteFrame = this.frame;
-                sp.color = this.cachedColor(TILE_COLORS[tile.img - 1]);
-            } else {
-                sp.spriteFrame = this.frame;
-                const style = TILE_STYLE[tile.img] ?? TILE_STYLE[0];
-                sp.color = this.cachedColor(style[parityDark ? 1 : 0]);
-            }
+            // 존 색 베이스 (통짜 바닥 이미지가 그 위에 얹힘)
+            sp.spriteFrame = this.frame;
+            const style = TILE_STYLE[tile.zone] ?? TILE_STYLE[0];
+            sp.color = this.cachedColor(style[parityDark ? 1 : 0]);
             this.active.set(k, node);
         }
     }

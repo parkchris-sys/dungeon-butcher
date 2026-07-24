@@ -76,6 +76,7 @@ class FrameCache {
 const tiles = new FrameCache('tiles', '타일');
 const units = new FrameCache('units', '유닛');
 const objs = new FrameCache('objs', '오브젝트');
+const floors = new FrameCache('floors', '바닥');
 
 export function tileFrame(id: number): SpriteFrame | null { return tiles.get(id); }
 export function ensureTileFrames() { tiles.ensure(); }
@@ -87,3 +88,6 @@ export function ensureUnitFrames() { units.ensure(); }
 export function objFrame(id: number): SpriteFrame | null { return objs.get(id); }
 export function objAspect(id: number): number { return objs.aspect(id); }
 export function ensureObjFrames() { objs.ensure(); }
+
+export function floorFrame(id: number): SpriteFrame | null { return floors.get(id); }
+export function ensureFloorFrames() { floors.ensure(); }

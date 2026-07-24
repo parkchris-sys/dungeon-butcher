@@ -145,12 +145,14 @@ export class IngameBootstrap extends Component {
         });
     }
 
-    /** img ID → 타일/오브젝트/유닛 이미지 프레임 (maps/tiles·objs·units — {ID}_{이름}.png) */
-    private tileFrames = new Map<number, SpriteFrame>();
+    /** ID → 이미지 프레임 (maps/floors·objs·units — {ID}_{이름}.png). 타일별 이미지는 폐지 → 구역 통짜 바닥 이미지 */
+    private floorFrames = new Map<number, SpriteFrame>();
     private objFrames = new Map<number, SpriteFrame>();
     private unitFrames = new Map<number, SpriteFrame>();
     /** 던전 ID → 스폰 몬스터 종류 (맵 에디터 몬스터 배치에서 파생) */
     private spawnKinds = new Map<number, string[]>();
+    /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
+    private floorSprites: { node: Node; x: number; y: number; hw: number; hh: number }[] = [];
 
     /**
      * 아트 텍스처 로드 — 없는 것은 조용히 폴백.
@@ -189,7 +191,7 @@ export class IngameBootstrap extends Component {
                 if (--pending === 0) done();
             });
         };
-        scanDir('maps/tiles', this.tileFrames);
+        scanDir('maps/floors', this.floorFrames);
         scanDir('maps/objs', this.objFrames);
         scanDir('maps/units', this.unitFrames);
     }
@@ -211,7 +213,9 @@ export class IngameBootstrap extends Component {
         this.tileView = new TileView(this.world, this.diamondFrame(), R, (gx, gy) => {
             const row = this.tileGrid[gy + R];
             return row ? row[gx + R] ?? null : null;
-        }, this.tileFrames);
+        });
+        // 구역별 통짜 바닥 이미지 (타일 베이스 위, 커서·개체 아래) + 화면 밖 컬링
+        this.buildFloors(this.world);
 
         // 현재 타일 하이라이트 (디자인 목업식 — 칸 단위 스냅, 생고기 레드 틴트)
         this.tileCursor = this.addSprite('TileCursor', this.world, this.diamondFrame(),
@@ -616,6 +620,7 @@ export class IngameBootstrap extends Component {
 
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
+        this.updateFloorCulling();
 
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
@@ -706,6 +711,41 @@ export class IngameBootstrap extends Component {
 
             const body = this.addSprite('Body', p, this.squareFrame(), prop.w, prop.h, this.color(prop.tint));
             body.setPosition(0, prop.h / 2, 0);
+        }
+    }
+
+    // ── 구역 통짜 바닥 이미지 (타일별 이미지 대체) ──
+    private buildFloors(parent: Node) {
+        this.floorSprites = [];
+        const floors = this.makeNode('Floors', parent);
+        for (const r of this.map.regions ?? []) {
+            const id = r.floorImg ?? 0;
+            if (!id) continue;
+            const f = this.floorFrames.get(id);
+            if (!f) { console.warn(`[IngameBootstrap] 바닥 이미지 ${id}번을 찾지 못함 (구역 ${r.name})`); continue; }
+            const scale = r.floorScale ?? 1;
+            const w = f.rect.width * scale, h = f.rect.height * scale;
+            const cx = r.gx + (r.w - 1) / 2, cy = r.gy + (r.h - 1) / 2;
+            const x = isoX(cx, cy) + (r.floorOffX ?? 0);
+            const y = isoY(cx, cy) + (r.floorOffY ?? 0);
+            const node = this.addSprite(`floor_${r.name}`, floors, f, w, h, this.color('#FFFFFF'));
+            node.setPosition(x, y, 0);
+            this.floorSprites.push({ node, x, y, hw: w / 2, hh: h / 2 });
+        }
+    }
+
+    /** 화면 밖 바닥 이미지는 그리지 않음 — 뷰포트 사각형과 교차하는 것만 활성 */
+    private updateFloorCulling() {
+        if (this.floorSprites.length === 0) return;
+        const vs = view.getVisibleSize();
+        const halfVW = vs.width / 2 / this.zoom + TILE_W;
+        const halfVH = vs.height / 2 / this.zoom + TILE_H;
+        const ccx = isoX(this.pgx, this.pgy);
+        const ccy = isoY(this.pgx, this.pgy);
+        for (const f of this.floorSprites) {
+            const visible = Math.abs(f.x - ccx) <= halfVW + f.hw
+                && Math.abs(f.y - ccy) <= halfVH + f.hh;
+            if (f.node.active !== visible) f.node.active = visible;
         }
     }
 
