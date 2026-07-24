@@ -832,7 +832,9 @@ export class IngameBootstrap extends Component {
     /** 아이소 깊이 정렬 — 화면 y가 클수록(위) 뒤로. Entities 자식 siblingIndex 갱신 */
     private sortEntities() {
         const children = this.entities.children.slice();
-        children.sort((a, b) => b.position.y - a.position.y);
+        // 화면 y가 클수록(위) 뒤로. 일부 노드는 __sortY로 정렬 깊이를 따로 지정(트리거 아이템 등)
+        const sortY = (n: Node) => (n as unknown as { __sortY?: number }).__sortY ?? n.position.y;
+        children.sort((a, b) => sortY(b) - sortY(a));
         for (let i = 0; i < children.length; i++) {
             children[i].setSiblingIndex(i);
         }

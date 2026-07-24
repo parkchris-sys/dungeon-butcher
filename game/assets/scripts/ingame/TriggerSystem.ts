@@ -272,6 +272,8 @@ export class TriggerSystem {
         const node = this.host.ui.addSprite(name, this.host.entities, this.host.ui.square(),
             28, 16, this.host.ui.color(color));
         node.setPosition(center.x, center.y + 12 + stack.length * 10, 0);
+        // 트리거 타일 위 아이템은 링크된 영역 오브젝트보다 앞에 그려지게 — 정렬 깊이를 타일보다 살짝 앞으로
+        (node as unknown as { __sortY: number }).__sortY = center.y - 1;
         stack.push(node);
     }
 
@@ -294,6 +296,8 @@ export class TriggerSystem {
         const node = this.host.ui.addSprite(name, this.host.entities, this.host.ui.square(),
             28, 16, this.host.ui.color(color));
         node.setPosition(sx, sy, 0);
+        // 비행/도착 아이템도 목적지 타일의 오브젝트보다 앞에 (도착 지점 기준 살짝 앞)
+        (node as unknown as { __sortY: number }).__sortY = ey - 1;
         this.flights.push({ node, sx, sy, ex, ey, elapsed: 0, done });
     }
 
