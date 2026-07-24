@@ -451,14 +451,20 @@ export class MapEditRoot extends Component {
         for (const node of this.allObjectNodes()) {
             const o = node.getComponent(MapObject);
             if (!o) continue;
+
+            // 현재 부모가 어느 리전의 objects 그룹이면 그 리전 (수동으로 리전 아래 넣은 경우)
+            const curParent = node.parent;
+            const curRegion = curParent && curParent.name === 'objects'
+                && curParent.parent?.getComponent(TileRegion) ? curParent.parent : null;
+            // regionId 미지정인데 리전 아래에 있으면 그 리전 ID를 자동 채택 — 수동 배치를 전역으로 빼내지 않음
+            if (o.regionId <= 0 && curRegion) o.regionId = curRegion.getComponent(TileRegion)!.regionId;
+
             const targetRegion = o.regionId > 0 ? regionById(o.regionId) : null;
             const targetParent = targetRegion ? this.ensureObjectsGroup(targetRegion) : globalObjects;
             if (node.parent === targetParent) continue;
 
-            // 절대 청사진 좌표 = 현재 로컬 + 현재 소속 리전 offset
-            const curParent = node.parent;
-            const curRegion = curParent && curParent.name === 'objects' ? curParent.parent : null;
-            const curOff = curRegion?.getComponent(TileRegion) ? curRegion.position : null;
+            // 절대 청사진 좌표 = 현재 로컬 + 현재 소속 리전 offset (부모 이동해도 위치 보존)
+            const curOff = curRegion ? curRegion.position : null;
             const absX = node.position.x + (curOff?.x ?? 0);
             const absY = node.position.y + (curOff?.y ?? 0);
             const newOff = targetRegion ? targetRegion.position : null;
