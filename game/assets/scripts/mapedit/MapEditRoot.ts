@@ -437,6 +437,7 @@ export class MapEditRoot extends Component {
                 const h = Math.min(REGION_MAX, Math.max(1, Math.round(ut.contentSize.height / B))) * B;
                 if (w !== ut.contentSize.width || h !== ut.contentSize.height) ut.setContentSize(w, h);
             }
+            this.updateRegionMarker(n); // 마커 표시 상태 갱신 (floorImg/편집 여부 반영)
         }
     }
 
@@ -540,14 +541,13 @@ export class MapEditRoot extends Component {
             }
             return;
         }
-        if (this.activeRegion) {
-            this.commitTiles(this.activeRegion); // 데이터 반영 후 전환
-            this.setRegionEditAlpha(this.activeRegion, false);
-        }
+        const prev = this.activeRegion;
+        if (prev) this.commitTiles(prev); // 데이터 반영 후 전환
         this.activeRegion = next;
         this.lastRegionKey = next ? this.regionKey(next) : '';
+        if (prev) this.updateRegionMarker(prev); // 비활성화 → 마커 복원(floorImg 없으면)
         if (next) {
-            this.setRegionEditAlpha(next, true);
+            this.updateRegionMarker(next);
             this.layoutTiles(next);
         } else {
             this.destroyTiles();
@@ -555,17 +555,19 @@ export class MapEditRoot extends Component {
     }
 
     /**
-     * 편집 중이면 구역 마커 Sprite를 끈다 — 통짜 바닥 이미지 위를 반투명 마커가 덮지 않게.
-     * 편집 아닐 땐 반투명 마커(alpha 30)로 구역 위치·크기를 보여준다.
+     * 구역 마커 Sprite 표시 갱신 — 다음 중 하나면 마커를 끈다(통짜 바닥/타일 위를 안 덮게):
+     *  ① floorImg 지정됨(바닥 프리뷰가 대신) ② 편집 중(EditTiles)
+     * ⚠️ Sprite 색 알파는 자식(리전 종속 오브젝트 등)에 상속됨 — 끌 땐 알파 255로 올려
+     *    자식이 흐려지지 않게 하고, 마커를 보일 땐 반투명(30)으로 위치·크기 표시.
      */
-    private setRegionEditAlpha(region: Node, editing: boolean) {
+    private updateRegionMarker(region: Node) {
         const sp = region.getComponent(Sprite);
         if (!sp) return;
-        sp.enabled = !editing;
-        // ⚠️ Sprite 색 알파는 자식(리전 종속 오브젝트 등)에 상속됨 — 마커를 끄는 편집 중엔
-        // 255로 올려 자식이 흐려지지 않게 하고, 비편집 시엔 반투명(30) 마커로 표시
+        const tr = region.getComponent(TileRegion);
+        const hide = (tr?.floorImg ?? 0) > 0 || region === this.activeRegion;
+        sp.enabled = !hide;
         const c = sp.color.clone();
-        c.a = editing ? 255 : 30;
+        c.a = hide ? 255 : 30;
         sp.color = c;
     }
 
