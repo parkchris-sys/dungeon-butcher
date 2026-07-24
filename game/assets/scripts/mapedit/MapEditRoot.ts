@@ -8,9 +8,10 @@ import { MapTile } from './MapTile';
 import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
+import { MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf } from './MapTrigger';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
 import {
-    parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo, MapObjectDef, MapUnitDef,
+    parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo, MapObjectDef, MapUnitDef, MapTriggerDef,
 } from '../ingame/MapData';
 import { TILE_COLORS } from '../ingame/TilePalette';
 import { TILE_STYLE } from '../ingame/TileView';
@@ -48,6 +49,9 @@ export class MapEditRoot extends Component {
 
     @property({ type: CCBoolean, tooltip: '체크 = 오브젝트 추가 (objects 루트) — img 외형·kind 종류·tileW/H 타일 단위 크기' })
     addObject = false;
+
+    @property({ type: CCBoolean, tooltip: '체크 = 트리거 추가 (triggers 루트) — 타입·크기·연결 ID 설정' })
+    addTrigger = false;
 
     @property({ type: CCBoolean, tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: slime)' })
     addMonster = false;
@@ -90,8 +94,9 @@ export class MapEditRoot extends Component {
 
         if (this.addRegion) { this.addRegion = false; this.createRegion(); }
         if (this.addObject) { this.addObject = false; this.createObject(); }
+        if (this.addTrigger) { this.addTrigger = false; this.createTrigger(); }
         if (this.addMonster) { this.addMonster = false; this.createUnit('monsters', '몬스터', 'slime'); }
-        if (this.addNpc) { this.addNpc = false; this.createUnit('npcs', 'NPC', 'npc'); }
+        if (this.addNpc) { this.addNpc = false; this.createUnit('npcs', 'NPC', 'customer'); }
         if (this.clearOverrides) { this.clearOverrides = false; this.tileOverridesJson = '{}'; this.refreshTileNodes(); }
         if (this.exportJson) { this.exportJson = false; this.doExport(); }
         if (this.importJson) { this.importJson = false; this.doImport(); }
@@ -191,8 +196,9 @@ export class MapEditRoot extends Component {
         const byColor = new Map<string, string[]>();
         for (const key of Object.keys(ov)) {
             const [img, attr] = [ov[key][0] ?? 0, ov[key][1] ?? 0];
-            const hex = attr === 1 ? '#B03A30'
-                : (TILE_COLORS[img - 1] ?? (TILE_STYLE[img] ?? TILE_STYLE[0])[0]);
+            const attrTint: Record<number, string> = { 1: '#B03A30', 2: '#3E86C0', 3: '#E0A93B' };
+            const hex = attrTint[attr]
+                ?? (TILE_COLORS[img - 1] ?? (TILE_STYLE[img] ?? TILE_STYLE[0])[0]);
             let list = byColor.get(hex);
             if (!list) byColor.set(hex, list = []);
             list.push(key);
@@ -295,6 +301,11 @@ export class MapEditRoot extends Component {
             if (n.name.startsWith('_')) continue;
             if (!n.getComponent(MapObject)) n.addComponent(MapObject);
         }
+        const triggers = this.ensureGroup('triggers');
+        for (const n of triggers.children) {
+            if (n.name.startsWith('_')) continue;
+            if (!n.getComponent(MapTrigger)) n.addComponent(MapTrigger);
+        }
         for (const rootName of ['monsters', 'npcs', 'spawn']) {
             const root = this.ensureGroup(rootName);
             for (const n of root.children) {
@@ -312,8 +323,24 @@ export class MapEditRoot extends Component {
         const root = this.ensureGroup('objects');
         const n = this.createMarker(root, `오브젝트${root.children.length + 1}`, B, B, '#8A6A4A');
         const o = n.addComponent(MapObject);
+        let index = 1;
+        const used = new Set(root.children.map(child => child.getComponent(MapObject)?.objectId));
+        while (used.has(`object-${index}`)) index++;
+        o.objectId = `object-${index}`;
         o.kind = 'obj';
         console.log('[MapEditRoot] 오브젝트 추가 — Inspector에서 img(외형)·kind(종류)·tileW/H(타일 크기) 설정');
+    }
+
+    private createTrigger() {
+        const root = this.ensureGroup('triggers');
+        let index = 1;
+        const used = new Set(root.children.map(child => child.getComponent(MapTrigger)?.triggerId));
+        while (used.has(`trigger-${index}`)) index++;
+        const n = this.createMarker(root, `트리거${index}`, B, B, '#D96C4A');
+        const trigger = n.addComponent(MapTrigger);
+        trigger.triggerId = `trigger-${index}`;
+        trigger.triggerType = MapTriggerKind.IngredientDropoff;
+        console.log('[MapEditRoot] 트리거 추가 — triggerId·triggerType·tileW/H·연결 ID를 설정하세요');
     }
 
     private createUnit(rootName: string, label: string, kind: string) {
@@ -526,6 +553,7 @@ export class MapEditRoot extends Component {
         shiftChildren(this.node.getChildByName('props'));
         shiftChildren(this.node.getChildByName('regions'));
         shiftChildren(this.node.getChildByName('objects'));
+        shiftChildren(this.node.getChildByName('triggers'));
         shiftChildren(this.node.getChildByName('monsters'));
         shiftChildren(this.node.getChildByName('npcs'));
 
@@ -606,10 +634,25 @@ export class MapEditRoot extends Component {
             const n = this.createMarker(objRoot, o.kind, o.w * B, o.h * B, '#8A6A4A');
             n.setPosition((o.gx - 0.5 + o.w / 2) * B, (o.gy - 0.5 + o.h / 2) * B, 0);
             const comp = n.addComponent(MapObject);
+            comp.objectId = o.id ?? '';
             comp.kind = o.kind;
             comp.img = o.img;
             comp.tileW = o.w;
             comp.tileH = o.h;
+            comp.walkable = o.walkable ?? false;
+        }
+        const triggerRoot = this.ensureGroup('triggers');
+        for (const c of [...triggerRoot.children]) c.destroy();
+        for (const t of map.triggers ?? []) {
+            const n = this.createMarker(triggerRoot, t.id, t.w * B, t.h * B, '#D96C4A');
+            n.setPosition((t.gx - 0.5 + t.w / 2) * B, (t.gy - 0.5 + t.h / 2) * B, 0);
+            const comp = n.addComponent(MapTrigger);
+            comp.triggerId = t.id;
+            comp.triggerType = triggerKindOf(t.type);
+            comp.tileW = t.w;
+            comp.tileH = t.h;
+            comp.triggerLink1 = t.triggerLinks[0] ?? '';
+            comp.objectLink1 = t.objectLinks[0] ?? '';
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -832,11 +875,51 @@ export class MapEditRoot extends Component {
             const o = n.getComponent(MapObject);
             if (!o) continue;
             objectList.push({
+                id: o.objectId || undefined,
                 kind: o.kind || 'obj', img: o.img,
                 gx: Math.floor(n.position.x / B - o.tileW / 2 + 0.5),
                 gy: Math.floor(n.position.y / B - o.tileH / 2 + 0.5),
                 w: o.tileW, h: o.tileH,
+                walkable: o.walkable,
             });
+        }
+        const triggerList: MapTriggerDef[] = [];
+        const triggerIds = new Set<string>();
+        const objectIds = new Set<string>();
+        for (const object of objectList) {
+            if (!object.id) continue;
+            if (objectIds.has(object.id)) console.warn(`[MapEditRoot] 오브젝트 ID 중복: ${object.id}`);
+            objectIds.add(object.id);
+        }
+        for (const n of this.node.getChildByName('triggers')?.children ?? []) {
+            if (n.name.startsWith('_')) continue;
+            const t = n.getComponent(MapTrigger);
+            if (!t) continue;
+            const id = t.triggerId.trim();
+            if (!id) {
+                console.warn(`[MapEditRoot] 트리거 '${n.name}'의 triggerId가 비어 있어 제외됩니다`);
+                continue;
+            }
+            if (triggerIds.has(id)) console.warn(`[MapEditRoot] 트리거 ID 중복: ${id}`);
+            triggerIds.add(id);
+            triggerList.push({
+                id,
+                type: triggerTypeOf(t.triggerType),
+                gx: Math.floor(n.position.x / B - t.tileW / 2 + 0.5),
+                gy: Math.floor(n.position.y / B - t.tileH / 2 + 0.5),
+                w: t.tileW,
+                h: t.tileH,
+                triggerLinks: t.triggerLink1.trim() ? [t.triggerLink1.trim()] : [],
+                objectLinks: t.objectLink1.trim() ? [t.objectLink1.trim()] : [],
+            });
+        }
+        for (const t of triggerList) {
+            for (const link of t.triggerLinks) {
+                if (!triggerIds.has(link)) console.warn(`[MapEditRoot] 트리거 '${t.id}'의 연결 대상 '${link}'을 찾을 수 없습니다`);
+            }
+            for (const link of t.objectLinks) {
+                if (!objectIds.has(link)) console.warn(`[MapEditRoot] 트리거 '${t.id}'의 연결 오브젝트 '${link}'를 찾을 수 없습니다`);
+            }
         }
         const collectUnits = (rootName: string): MapUnitDef[] => {
             const list: MapUnitDef[] = [];
@@ -870,6 +953,7 @@ export class MapEditRoot extends Component {
             tiles: { img, zone, attr, dungeon },
             regions: regionList,
             objects: objectList,
+            triggers: triggerList,
             monsters: monsterList,
             npcs: npcList,
         };

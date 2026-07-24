@@ -26,7 +26,7 @@ function tintOf(n: Node, fallback: string): string {
     const sp = n.getComponent(Sprite);
     if (!sp) return fallback;
     const c = sp.color;
-    const hex = (v: number) => v.toString(16).padStart(2, '0');
+    const hex = (v: number) => (`0${v.toString(16)}`).slice(-2);
     return `#${hex(c.r)}${hex(c.g)}${hex(c.b)}`.toUpperCase();
 }
 

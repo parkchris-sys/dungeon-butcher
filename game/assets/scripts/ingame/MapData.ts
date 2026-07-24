@@ -47,12 +47,34 @@ export interface TileDef {
 
 /** 맵 오브젝트 — 타일 위에 올라가는 배치물. 위치·크기 모두 타일 단위 (props의 후속 — px 실루엣 대체 예정) */
 export interface MapObjectDef {
+    id?: string;   // 트리거가 참조하는 고유 ID
     kind: string; // 종류 라벨 (자유 — 예: crate, tree, meat_rack)
     img: number;  // 외형 — resources/maps/objs/{ID}_{이름}.png의 ID (0=이미지 없음, 실루엣 표시)
     gx: number;   // 차지 영역 최소 코너 (타일)
     gy: number;
     w: number;    // 타일 단위 크기
     h: number;
+    walkable?: boolean; // true면 플레이어가 점유 타일을 통과할 수 있음
+}
+
+export type TriggerType =
+    | 'ingredient-dropoff'
+    | 'cooking'
+    | 'serving-counter'
+    | 'purchase-spot'
+    | 'checkout'
+    | 'money-pickup';
+
+/** 타일 영역 트리거. 연결 대상은 순서가 의미를 가지므로 배열 인덱스를 유지한다. */
+export interface MapTriggerDef {
+    id: string;
+    type: TriggerType;
+    gx: number;
+    gy: number;
+    w: number;
+    h: number;
+    triggerLinks: string[];
+    objectLinks: string[];
 }
 
 /** 유닛 — 몬스터/NPC 배치. 타일 1칸 점유, 위치는 타일 중심 */
@@ -76,6 +98,8 @@ export interface MapRegionInfo {
 /** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */
 export const TILE_ATTR_NONE = 0;
 export const TILE_ATTR_BLOCKED = 1; // 이동불가 — 벽을 대체
+export const TILE_ATTR_QUEUE = 2;   // 대기열 — 손님 NPC가 줄 서서 따라 이동
+export const TILE_ATTR_EXIT = 3;    // 퇴장 — 손님 NPC가 나갈 때 따라 이동
 
 export interface MapData {
     name: string;
@@ -86,6 +110,7 @@ export interface MapData {
     tiles?: TileDef[][];              // [gy+R][gx+R] — 없으면 buildTileGrid로 존에서 파생
     regions?: MapRegionInfo[];        // 편집 구역 (이름·던전ID·기하) — 에디터 왕복 + 던전 이름 표시
     objects?: MapObjectDef[];         // 타일 위 오브젝트 (타일 단위 크기)
+    triggers?: MapTriggerDef[];       // 겹침 가능한 타일 영역 트리거
     monsters?: MapUnitDef[];          // 몬스터 배치 — kind가 그 던전의 스폰 종류에 추가됨
     npcs?: MapUnitDef[];              // NPC 배치 (정적 표시 — 상호작용은 추후)
     playerImg?: number;               // 플레이어 외형 — maps/units의 ID (0=기본 원화)
@@ -122,7 +147,8 @@ export function parseMapDataJson(j: unknown): MapData | null {
         zones?: ZoneDef[]; props?: PropDef[];
         tiles?: { img: number[]; zone: number[]; attr: number[]; dungeon?: number[] };
         regions?: MapRegionInfo[];
-        objects?: MapObjectDef[]; monsters?: MapUnitDef[]; npcs?: MapUnitDef[];
+        objects?: MapObjectDef[]; triggers?: MapTriggerDef[];
+        monsters?: MapUnitDef[]; npcs?: MapUnitDef[];
     };
     if (!d || (d.version !== 1 && d.version !== 2) || !d.size) return null;
     if ((!d.zones || d.zones.length === 0) && !d.tiles) return null; // 존도 타일도 없으면 무효
@@ -167,6 +193,7 @@ export function parseMapDataJson(j: unknown): MapData | null {
         tiles,
         regions: d.regions,
         objects: d.objects ?? [],
+        triggers: d.triggers ?? [],
         monsters: d.monsters ?? [],
         npcs: d.npcs ?? [],
         playerImg: d.spawn?.img ?? 0,

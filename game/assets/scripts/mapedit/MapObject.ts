@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCString, CCObject } from 'cc';
+import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCString, CCBoolean, CCObject } from 'cc';
 import { EDITOR } from 'cc/env';
 import { objFrame, objAspect, ensureObjFrames } from './TileFrameCache';
 
@@ -16,6 +16,9 @@ const OBJ_MAX = 16;     // 오브젝트 한 변 최대 타일 수
 @ccclass('MapObject')
 @executeInEditMode
 export class MapObject extends Component {
+    @property({ type: CCString, tooltip: '트리거가 연결할 때 사용하는 오브젝트 고유 ID' })
+    objectId = '';
+
     @property({ type: CCInteger, tooltip: '외형 — resources/maps/objs의 {ID}_{이름}.png와 매칭 (0=실루엣)' })
     img = 0;
 
@@ -27,6 +30,9 @@ export class MapObject extends Component {
 
     @property({ type: CCInteger, tooltip: '차지하는 타일 수 (세로)' })
     tileH = 1;
+
+    @property({ type: CCBoolean, tooltip: '체크하면 플레이어가 오브젝트 점유 타일로 이동할 수 있습니다.' })
+    walkable = false;
 
     private lastKey = '';
     private imgNode: Node | null = null;

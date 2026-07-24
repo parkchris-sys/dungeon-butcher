@@ -124,6 +124,16 @@ export class CombatSystem {
         return this.slimes.length > 0 || this.meats.length > 0;
     }
 
+    /** 생산 트리거가 플레이어 등에 쌓인 맨 위 고기 한 개를 가져간다. */
+    takeTopMeat(): boolean {
+        const piece = this.stackPieces.pop();
+        if (!piece) return false;
+        piece.destroy();
+        this.meatCount = Math.max(0, this.meatCount - 1);
+        this.host.onMeatCount(this.meatCount, BAL.stack.limit);
+        return true;
+    }
+
     update(dt: number) {
         this.time += dt;
         this.updateSpawn(dt);

@@ -12,6 +12,8 @@ import {
 import { TileView } from './TileView';
 import { parseTiledMap } from './TiledLoader';
 import { CombatSystem } from './CombatSystem';
+import { TriggerNpc, TriggerSystem } from './TriggerSystem';
+import { CustomerSystem } from './CustomerSystem';
 
 const { ccclass, property } = _decorator;
 
@@ -88,7 +90,12 @@ export class IngameBootstrap extends Component {
 
     // 던전 코어 (웨이브·자동공격·고기·스택)
     private combat: CombatSystem | null = null;
+    private triggerSystem: TriggerSystem | null = null;
+    private customerSystem: CustomerSystem | null = null;
+    private triggerNpcs: TriggerNpc[] = []; // 손님(customer) NPC만 — 트리거·이동 시스템이 공유
     private meatHud: Label | null = null;
+    private goldHud: Label | null = null;
+    private goldCount = 0;
     private hpFill: Node | null = null;
     private playerFlashT = 0;
 
@@ -171,16 +178,11 @@ export class IngameBootstrap extends Component {
         }
 
         const scanDir = (dir: string, into: Map<number, SpriteFrame>) => {
-            resources.loadDir(dir, ImageAsset, (err, images) => {
-                if (!err && images) {
-                    for (const img of images) {
-                        const m = img.name.match(/^(\d+)_/); // {ID}_{이름}
+            resources.loadDir(dir, SpriteFrame, (err, frames) => {
+                if (!err && frames) {
+                    for (const frame of frames) {
+                        const m = frame.name.match(/^(\d+)_/); // {ID}_{이름}
                         if (!m) continue;
-                        const tex = new Texture2D();
-                        tex.image = img;
-                        const frame = new SpriteFrame();
-                        frame.texture = tex;
-                        frame.packable = false;
                         into.set(+m[1], frame);
                     }
                 }
@@ -221,7 +223,7 @@ export class IngameBootstrap extends Component {
             const did = this.dungeonIdAt(m.gx, m.gy);
             if (did === 0) continue; // 던전 밖 배치 — 에디터가 내보내기 시 경고함
             const arr = this.spawnKinds.get(did) ?? [];
-            if (!arr.includes(m.kind)) arr.push(m.kind);
+            if (arr.indexOf(m.kind) < 0) arr.push(m.kind);
             this.spawnKinds.set(did, arr);
         }
 
@@ -280,7 +282,35 @@ export class IngameBootstrap extends Component {
             onPlayerHit: () => { this.playerFlashT = 0.15; },
             onPlayerDeath: () => this.respawnPlayer(),
         });
+        this.triggerSystem = new TriggerSystem({
+            entities: this.entities,
+            playerNode: () => this.player,
+            playerG: () => ({ gx: this.pgx, gy: this.pgy }),
+            takePlayerMeat: () => this.combat?.takeTopMeat() ?? false,
+            addGold: amount => {
+                this.goldCount += amount;
+                if (this.goldHud) this.goldHud.string = `골드 ${this.goldCount}`;
+            },
+            ui: {
+                makeNode: (n, p) => this.makeNode(n, p),
+                addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
+                square: () => this.squareFrame(),
+                color: (hex, a) => this.color(hex, a),
+            },
+        }, this.map.triggers ?? [], this.triggerNpcs, this.map.objects ?? []);
+        // 손님 이동·상태머신 — triggerNpcs(손님 목록)를 TriggerSystem과 공유
+        this.customerSystem = new CustomerSystem({
+            tileAttrAt: (gx, gy) => this.tileAttrAt(gx, gy),
+        }, this.triggerNpcs);
         this.ready = true;
+    }
+
+    /** (gx,gy) 타일의 속성 번호 (TILE_ATTR_*) — 손님 대기열/퇴장 판정용 */
+    private tileAttrAt(gx: number, gy: number): number {
+        const R = this.map.groundRadius;
+        const row = this.tileGrid[Math.round(gy) + R];
+        const t = row ? row[Math.round(gx) + R] : undefined;
+        return t ? t.attr : 0;
     }
 
     /** (gx,gy)의 던전 인스턴스 ID (0=던전 아님) */
@@ -335,6 +365,17 @@ export class IngameBootstrap extends Component {
         this.meatHud.isBold = true;
         this.meatHud.color = this.color('#F7EFD8');
         this.meatHud.horizontalAlign = Label.HorizontalAlign.LEFT;
+
+        const gold = this.makeNode('GoldHud', this.node);
+        const goldWidget = gold.addComponent(Widget);
+        goldWidget.isAlignTop = true; goldWidget.top = 80;
+        goldWidget.isAlignLeft = true; goldWidget.left = 360;
+        this.goldHud = gold.addComponent(Label);
+        this.goldHud.string = `골드 ${this.goldCount}`;
+        this.goldHud.fontSize = 48;
+        this.goldHud.isBold = true;
+        this.goldHud.color = this.color('#F0B429');
+        this.goldHud.horizontalAlign = Label.HorizontalAlign.LEFT;
 
         // HP 바 (고기 카운터 아래)
         const bar = this.makeNode('HpBar', this.node);
@@ -579,6 +620,8 @@ export class IngameBootstrap extends Component {
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
             this.combat.update(dt);
+            this.customerSystem?.update(dt); // 손님 이동 먼저 — 트리거가 갱신된 위치를 봄
+            this.triggerSystem?.update(dt);
             this.sortEntities();
         }
 
@@ -613,9 +656,9 @@ export class IngameBootstrap extends Component {
     private tryMove(dgx: number, dgy: number) {
         const R = this.map.groundRadius;
         const nx = math.clamp(this.pgx + dgx, -R, R);
-        if (!this.hitsWall(nx, this.pgy)) this.pgx = nx;
+        if (!this.hitsWall(nx, this.pgy) && !this.hitsSolidObject(nx, this.pgy)) this.pgx = nx;
         const ny = math.clamp(this.pgy + dgy, -R, R);
-        if (!this.hitsWall(this.pgx, ny)) this.pgy = ny;
+        if (!this.hitsWall(this.pgx, ny) && !this.hitsSolidObject(this.pgx, ny)) this.pgy = ny;
     }
 
     /** 이동 가능 = "존이 칠해진 타일" 위. 타일 없음/zone 없음(0)/attr 이동불가(1) = 차단 */
@@ -624,6 +667,18 @@ export class IngameBootstrap extends Component {
         const row = this.tileGrid[Math.round(gy) + R];
         const t = row ? row[Math.round(gx) + R] : undefined;
         return !t || t.zone === ZoneType.None || t.attr === TILE_ATTR_BLOCKED;
+    }
+
+    /** 플레이어 전용 오브젝트 점유 판정. walkable=true인 오브젝트는 통과한다. */
+    private hitsSolidObject(gx: number, gy: number): boolean {
+        const tx = Math.round(gx);
+        const ty = Math.round(gy);
+        for (const object of this.map.objects ?? []) {
+            if (object.walkable) continue;
+            if (tx >= object.gx && tx < object.gx + object.w &&
+                ty >= object.gy && ty < object.gy + object.h) return true;
+        }
+        return false;
     }
 
     /** 플레이어가 어느 존에 있는지 판정 — 밟고 있는 타일의 zone 속성 기반 */
@@ -684,9 +739,13 @@ export class IngameBootstrap extends Component {
         }
     }
 
-    // ── NPC (정적 표시 — 상호작용은 추후) ──
+    /** 손님으로 취급하는 NPC kind — 대기열 이동·판매 루프 대상 (그 외 NPC는 정적 표시) */
+    private static readonly CUSTOMER_KINDS = new Set(['customer', '손님']);
+
+    // ── NPC (손님은 CustomerSystem이 이동/상태 처리, 나머지는 정적 표시) ──
     private buildNpcs(parent: Node) {
         const c = IngameBootstrap.CHAR_PX;
+        this.triggerNpcs = [];
         for (const u of this.map.npcs ?? []) {
             const p = this.makeNode(`npc_${u.kind}`, parent);
             p.setPosition(isoX(u.gx, u.gy), isoY(u.gx, u.gy), 0);
@@ -704,6 +763,13 @@ export class IngameBootstrap extends Component {
                 body = this.addSprite('Body', p, this.squareFrame(), c * 0.6, c * 0.8, this.color('#3BAF6E'));
             }
             body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
+
+            if (IngameBootstrap.CUSTOMER_KINDS.has(u.kind)) {
+                this.triggerNpcs.push({
+                    def: u, node: p, gx: u.gx, gy: u.gy,
+                    state: 'wants-food', served: false, paid: false,
+                });
+            }
         }
     }
 

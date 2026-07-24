@@ -26,7 +26,9 @@ export class MapUnit extends Component {
     @property({ type: CCInteger, tooltip: '외형 — resources/maps/units의 {ID}_{이름}.png와 매칭 (0=색 마커)' })
     img = 0;
 
-    @property({ type: CCString, tooltip: '종류 — 몬스터: 스폰 종류 키(slime 등, CombatSystem과 매칭)\nNPC: 자유 라벨 / 플레이어: player 고정' })
+    @property({ type: CCString, tooltip: '종류 — 몬스터: 스폰 종류 키(slime 등, CombatSystem과 매칭)\n'
+        + 'NPC: customer(손님) = 대기열 따라 이동·판매 루프 대상 / 그 외 라벨 = 정적 표시\n'
+        + '플레이어: player 고정' })
     kind = '';
 
     private lastKey = '';

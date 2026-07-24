@@ -15,6 +15,22 @@ enum 존타입 {
 }
 Enum(존타입);
 
+/** Inspector 드롭다운용 속성 — 값은 게임의 TILE_ATTR_*(MapData.ts)와 동일 */
+enum 속성 {
+    없음 = 0,
+    이동불가 = 1, // 벽 대체
+    대기열 = 2,   // 손님 NPC가 줄 서서 따라 이동
+    퇴장 = 3,     // 손님 NPC가 나갈 때 따라 이동
+}
+Enum(속성);
+
+/** 속성별 에디터 표시색 — 이미지가 있어도 이 틴트를 얹어 경로가 보이게 */
+const ATTR_TINT: Record<number, string> = {
+    1: '#B03A30', // 이동불가 — 붉은 벽
+    2: '#3E86C0', // 대기열 — 파랑
+    3: '#E0A93B', // 퇴장 — 노랑
+};
+
 /**
  * 맵 편집 씬의 타일 1칸 — Inspector에서 img/attr/zone을 편집한다 (다중 선택 편집 가능).
  * img = 타일 이미지 고유값({ID}_{이름}.png의 ID). 매칭되는 이미지가 있으면 실제 이미지로,
@@ -26,8 +42,8 @@ export class MapTile extends Component {
     @property({ type: CCInteger, tooltip: '타일 이미지 고유값 — resources/maps/tiles의 {ID}_{이름}.png와 매칭 (0=없음)' })
     img = 0;
 
-    @property({ type: CCInteger, tooltip: '속성 번호 — 0=없음, 1=이동불가(벽 대체). 이후 기획 표에 따라 확장' })
-    attr = 0;
+    @property({ type: 속성, tooltip: '타일 속성 — 이동불가(벽)/대기열(손님 줄)/퇴장(손님 나감)' })
+    attr: 속성 = 속성.없음;
 
     @property({ type: 존타입, tooltip: '구역 타입 — 마을(안전·회복) / 던전(스폰) / 통로(몬스터 불가침)' })
     zone: 존타입 = 존타입.없음;
@@ -70,18 +86,18 @@ export class MapTile extends Component {
         } else {
             if (this.imgNode) this.imgNode.active = false;
             base.enabled = true;
-            const hex = this.attr === 1 ? '#B03A30'
-                : (TILE_COLORS[this.img - 1] ?? (TILE_STYLE[this.img] ?? TILE_STYLE[0])[0]);
+            const hex = ATTR_TINT[this.attr]
+                ?? (TILE_COLORS[this.img - 1] ?? (TILE_STYLE[this.img] ?? TILE_STYLE[0])[0]);
             const c = new Color();
             Color.fromHEX(c, hex);
             base.color = c;
         }
     }
 
-    /** attr 상태를 이미지 틴트로 표현 (이동불가 = 붉은 물) */
+    /** attr 상태를 이미지 틴트로 표현 — 속성 있는 타일은 옅게 색을 얹어 경로가 보이게 */
     private tintColor(hex: string): Color {
         const c = new Color();
-        Color.fromHEX(c, this.attr === 1 ? '#FF7A6E' : hex);
+        Color.fromHEX(c, ATTR_TINT[this.attr] ?? hex);
         return c;
     }
 
