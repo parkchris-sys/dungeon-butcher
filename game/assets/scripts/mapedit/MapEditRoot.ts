@@ -555,15 +555,18 @@ export class MapEditRoot extends Component {
     }
 
     /**
-     * 구역 스프라이트 알파 토글 — Sprite 색상 알파는 자식에게 상속되므로,
-     * 편집 중(타일이 자식으로 들어옴)에는 FF로 올려야 타일이 제 밝기로 보인다.
+     * 편집 중이면 구역 마커 Sprite를 끈다 — 통짜 바닥 이미지 위를 반투명 마커가 덮지 않게.
+     * 편집 아닐 땐 반투명 마커(alpha 30)로 구역 위치·크기를 보여준다.
      */
     private setRegionEditAlpha(region: Node, editing: boolean) {
         const sp = region.getComponent(Sprite);
         if (!sp) return;
-        const c = sp.color.clone();
-        c.a = editing ? 255 : 30;
-        sp.color = c;
+        sp.enabled = !editing;
+        if (!editing) {
+            const c = sp.color.clone();
+            c.a = 30;
+            sp.color = c;
+        }
     }
 
     private regionKey(n: Node): string {
