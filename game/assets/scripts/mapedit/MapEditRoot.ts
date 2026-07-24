@@ -562,11 +562,11 @@ export class MapEditRoot extends Component {
         const sp = region.getComponent(Sprite);
         if (!sp) return;
         sp.enabled = !editing;
-        if (!editing) {
-            const c = sp.color.clone();
-            c.a = 30;
-            sp.color = c;
-        }
+        // ⚠️ Sprite 색 알파는 자식(리전 종속 오브젝트 등)에 상속됨 — 마커를 끄는 편집 중엔
+        // 255로 올려 자식이 흐려지지 않게 하고, 비편집 시엔 반투명(30) 마커로 표시
+        const c = sp.color.clone();
+        c.a = editing ? 255 : 30;
+        sp.color = c;
     }
 
     private regionKey(n: Node): string {
