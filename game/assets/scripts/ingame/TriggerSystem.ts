@@ -5,7 +5,6 @@ import { isoX, isoY, TILE_W } from './Projection';
 const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
 const COOK_S = 1.0;          // 고기 1개 요리 시간 — 기획 정의 전 (임의)
 const SPAWN_INTERVAL_S = 10; // NPC 스폰 주기 — 기획의 스폰 규칙 정의 전 (임의: 10초에 1명)
-const FLY_SORT = -1e6;       // 비행 아이템 정렬 깊이 — 실제 isoY보다 훨씬 작아 항상 최전면
 
 /**
  * 손님 상태 — CustomerSystem(이동)과 TriggerSystem(판매/정산)이 공유.
@@ -113,7 +112,7 @@ export class TriggerSystem {
         if (!target || !this.host.takePlayerMeat()) return;
         source.timer = TRANSFER_S;
         const p = this.host.playerNode().position;
-        this.fly('RawMeat', p.x, p.y + 90, target, '#C0503F', () => {
+        this.fly('RawMeat', p.x, p.y + 90, target, '#C0503F', p.y - 1, () => {
             this.pushItem(target, target.raw, 'RawMeat', '#C0503F');
         });
     }
@@ -139,7 +138,7 @@ export class TriggerSystem {
         source.timer = 0;
         source.working = false;
         const start = this.center(source.def);
-        this.fly('CookedFood', start.x, start.y + 22, target, '#E7A33E', () => {
+        this.fly('CookedFood', start.x, start.y + 22, target, '#E7A33E', start.y - 1, () => {
             this.pushItem(target, target.cooked, 'CookedFood', '#E7A33E');
         });
     }
@@ -158,7 +157,7 @@ export class TriggerSystem {
         source.timer = TRANSFER_S;
         const start = this.center(source.def);
         this.flyToPoint('ServedFood', start.x, start.y + 22,
-            customer.node.position.x, customer.node.position.y + 70, '#E7A33E', () => {
+            customer.node.position.x, customer.node.position.y + 70, '#E7A33E', start.y - 1, () => {
                 customer.state = 'satisfied';
             });
     }
@@ -174,7 +173,7 @@ export class TriggerSystem {
         source.timer = TRANSFER_S;
         const target = this.center(source.def);
         this.flyToPoint('Money', customer.node.position.x, customer.node.position.y + 70,
-            target.x, target.y + 22, '#F0B429', () => {
+            target.x, target.y + 22, '#F0B429', customer.node.position.y - 1, () => {
                 this.pushItem(source, source.money, 'Money', '#F0B429');
                 // 퇴장 시작 — 실제 내보내기(퇴장 타일 따라 이동·비활성)는 CustomerSystem이 처리
                 customer.state = 'leaving';
@@ -219,7 +218,7 @@ export class TriggerSystem {
         source.timer = TRANSFER_S;
         const start = this.center(checkout.def);
         const p = this.host.playerNode().position;
-        this.flyToPoint('MoneyPickup', start.x, start.y + 22, p.x, p.y + 70, '#F0B429', () => {
+        this.flyToPoint('MoneyPickup', start.x, start.y + 22, p.x, p.y + 70, '#F0B429', start.y - 1, () => {
             this.host.addGold(1);
         });
     }
@@ -285,20 +284,21 @@ export class TriggerSystem {
         }
     }
 
-    private fly(name: string, sx: number, sy: number, target: RuntimeTrigger, color: string, done: () => void) {
+    private fly(name: string, sx: number, sy: number, target: RuntimeTrigger, color: string, srcSortY: number, done: () => void) {
         const end = this.center(target.def);
-        this.flyToPoint(name, sx, sy, end.x, end.y + 22, color, done);
+        this.flyToPoint(name, sx, sy, end.x, end.y + 22, color, srcSortY, done);
     }
 
     private flyToPoint(
         name: string, sx: number, sy: number, ex: number, ey: number,
-        color: string, done: () => void,
+        color: string, srcSortY: number, done: () => void,
     ) {
         const node = this.host.ui.addSprite(name, this.host.entities, this.host.ui.square(),
             28, 16, this.host.ui.color(color));
         node.setPosition(sx, sy, 0);
-        // 비행 중에는 모든 오브젝트보다 위 — 최전면 정렬값 (착지 후 pushItem이 타일 깊이로 재설정)
-        (node as unknown as { __sortY: number }).__sortY = FLY_SORT;
+        // 정렬 깊이를 출발 지점(소스) 기준으로 — 소스 앞에 선 캐릭터(예: 가판대 앞 플레이어)가
+        // 비행 아이템을 정상적으로 가리게 (무조건 최전면이면 플레이어가 건네주는 것처럼 보임)
+        (node as unknown as { __sortY: number }).__sortY = srcSortY;
         this.flights.push({ node, sx, sy, ex, ey, elapsed: 0, done });
     }
 
