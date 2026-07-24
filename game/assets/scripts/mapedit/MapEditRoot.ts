@@ -339,6 +339,59 @@ export class MapEditRoot extends Component {
         console.log(`[MapEditRoot] 편집 구역 추가 (ID ${tr.regionId}) — 이름은 자유롭게, 위치 잡고 editTiles 체크`);
     }
 
+    /** 구역마다 objects 하위 그룹 — 종속 오브젝트가 구역 자식이라 구역과 함께 움직임 */
+    private ensureObjectsGroup(region: Node): Node {
+        let g = region.getChildByName('objects');
+        if (!g) {
+            g = new Node('objects');
+            g.layer = Layers.Enum.UI_2D;
+            region.addChild(g);
+        }
+        return g;
+    }
+
+    /** 전역 objects + 모든 리전 objects 그룹의 오브젝트 노드 목록 ('_' 제외) */
+    private allObjectNodes(): Node[] {
+        const out: Node[] = [];
+        for (const n of this.ensureGroup('objects').children) {
+            if (!n.name.startsWith('_')) out.push(n);
+        }
+        for (const r of this.regionsGroup().children) {
+            const g = r.getChildByName('objects');
+            if (g) for (const n of g.children) if (!n.name.startsWith('_')) out.push(n);
+        }
+        return out;
+    }
+
+    /**
+     * 오브젝트를 종속 리전으로 편입 — MapObject.regionId가 가리키는 리전의 objects 자식으로 이동.
+     * 절대 위치(청사진)는 보존한다. regionId=0 이거나 해당 리전이 없으면 전역 objects 그룹으로.
+     */
+    private syncObjectRegions() {
+        const globalObjects = this.ensureGroup('objects');
+        const regions = this.regionsGroup().children;
+        const regionById = (id: number) =>
+            regions.find(r => r.getComponent(TileRegion)?.regionId === id) ?? null;
+
+        for (const node of this.allObjectNodes()) {
+            const o = node.getComponent(MapObject);
+            if (!o) continue;
+            const targetRegion = o.regionId > 0 ? regionById(o.regionId) : null;
+            const targetParent = targetRegion ? this.ensureObjectsGroup(targetRegion) : globalObjects;
+            if (node.parent === targetParent) continue;
+
+            // 절대 청사진 좌표 = 현재 로컬 + 현재 소속 리전 offset
+            const curParent = node.parent;
+            const curRegion = curParent && curParent.name === 'objects' ? curParent.parent : null;
+            const curOff = curRegion?.getComponent(TileRegion) ? curRegion.position : null;
+            const absX = node.position.x + (curOff?.x ?? 0);
+            const absY = node.position.y + (curOff?.y ?? 0);
+            const newOff = targetRegion ? targetRegion.position : null;
+            node.parent = targetParent;
+            node.setPosition(absX - (newOff?.x ?? 0), absY - (newOff?.y ?? 0), 0);
+        }
+    }
+
     /** 구역마다 props 하위 그룹 — 배치물은 구역 자식이라 구역과 함께 움직임 */
     private ensurePropsGroup(region: Node): Node {
         let p = region.getChildByName('props');
@@ -376,11 +429,11 @@ export class MapEditRoot extends Component {
      * 디자이너가 노드를 복제/신규 생성해도 컴포넌트가 저절로 붙어 바로 편집 가능.
      */
     private syncPlacements() {
-        const objects = this.ensureGroup('objects');
-        for (const n of objects.children) {
-            if (n.name.startsWith('_')) continue;
+        // 오브젝트 노드는 전역 objects 그룹 + 각 리전의 objects 그룹 모두에 있을 수 있음
+        for (const n of this.allObjectNodes()) {
             if (!n.getComponent(MapObject)) n.addComponent(MapObject);
         }
+        this.syncObjectRegions();
         const triggers = this.ensureGroup('triggers');
         for (const n of triggers.children) {
             if (n.name.startsWith('_')) continue;
@@ -720,6 +773,10 @@ export class MapEditRoot extends Component {
             comp.tileW = o.w;
             comp.tileH = o.h;
             comp.walkable = o.walkable ?? false;
+            comp.regionId = o.regionId ?? 0; // syncObjectRegions가 다음 틱에 리전으로 편입
+            comp.imgScale = o.imgScale ?? 1;
+            comp.imgOffX = o.imgOffX ?? 0;
+            comp.imgOffY = o.imgOffY ?? 0;
         }
         const triggerRoot = this.ensureGroup('triggers');
         for (const c of [...triggerRoot.children]) c.destroy();
@@ -956,20 +1013,31 @@ export class MapEditRoot extends Component {
                 dungeon.push(z === ZoneType.Dungeon ? dungeonIdOf(gx, gy) : 0);
             }
         }
-        // 배치물 수집 — 오브젝트(타일 단위 기하)·몬스터·NPC·플레이어 외형
+        // 배치물 수집 — 오브젝트(전역 + 리전 종속, 절대 좌표로 변환)·몬스터·NPC·플레이어 외형
         const objectList: MapObjectDef[] = [];
-        for (const n of this.node.getChildByName('objects')?.children ?? []) {
-            if (n.name.startsWith('_')) continue;
-            const o = n.getComponent(MapObject);
-            if (!o) continue;
-            objectList.push({
-                id: o.objectId || undefined,
-                kind: o.kind || 'obj', img: o.img,
-                gx: Math.floor(n.position.x / B - o.tileW / 2 + 0.5),
-                gy: Math.floor(n.position.y / B - o.tileH / 2 + 0.5),
-                w: o.tileW, h: o.tileH,
-                walkable: o.walkable,
-            });
+        const collectObjects = (group: Node | null, baseX: number, baseY: number) => {
+            for (const n of group?.children ?? []) {
+                if (n.name.startsWith('_')) continue;
+                const o = n.getComponent(MapObject);
+                if (!o) continue;
+                const ax = baseX + n.position.x, ay = baseY + n.position.y;
+                objectList.push({
+                    id: o.objectId || undefined,
+                    kind: o.kind || 'obj', img: o.img,
+                    gx: Math.floor(ax / B - o.tileW / 2 + 0.5),
+                    gy: Math.floor(ay / B - o.tileH / 2 + 0.5),
+                    w: o.tileW, h: o.tileH,
+                    walkable: o.walkable,
+                    regionId: o.regionId || undefined,
+                    imgScale: o.imgScale !== 1 ? o.imgScale : undefined,
+                    imgOffX: o.imgOffX || undefined,
+                    imgOffY: o.imgOffY || undefined,
+                });
+            }
+        };
+        collectObjects(this.node.getChildByName('objects'), 0, 0); // 전역
+        for (const region of this.regionsGroup().children) {
+            collectObjects(region.getChildByName('objects'), region.position.x, region.position.y);
         }
         const triggerList: MapTriggerDef[] = [];
         const triggerIds = new Set<string>();

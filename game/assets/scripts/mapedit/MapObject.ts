@@ -1,11 +1,14 @@
-import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCString, CCBoolean, CCObject } from 'cc';
+import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCFloat, CCString, CCBoolean, CCObject } from 'cc';
 import { EDITOR } from 'cc/env';
-import { objFrame, objAspect, ensureObjFrames } from './TileFrameCache';
+import { objFrame, ensureObjFrames } from './TileFrameCache';
+import { TileRegion } from './TileRegion';
+import { TILE_W, TILE_H } from '../ingame/Projection';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
 const B = 32;           // 청사진 1타일 px
 const OBJ_MAX = 16;     // 오브젝트 한 변 최대 타일 수
+const ISO_K = 1 / (2 * Math.SQRT2); // 게임 px → 에디터 _img 크기 (타일 _img와 동일 기준)
 
 /**
  * 맵 편집 씬의 오브젝트 마커 — objects 루트 아래. 타일 위에 올라가며 크기는 타일 단위.
@@ -34,6 +37,19 @@ export class MapObject extends Component {
     @property({ type: CCBoolean, tooltip: '체크하면 플레이어가 오브젝트 점유 타일로 이동할 수 있습니다.' })
     walkable = false;
 
+    @property({ type: CCInteger, tooltip: '종속 리전 ID — 값을 넣으면 이 오브젝트가 해당 리전의 objects 자식으로 편입되어\n'
+        + '리전과 함께 움직입니다 (0=전역, 어느 리전에도 종속되지 않음)' })
+    regionId = 0;
+
+    @property({ type: CCFloat, tooltip: '외형 이미지 배율 (기본 1) — 타일 크기(tileW/H)와 무관하게 이미지 크기를 조절' })
+    imgScale = 1;
+
+    @property({ type: CCInteger, tooltip: '외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준' })
+    imgOffX = 0;
+
+    @property({ type: CCInteger, tooltip: '외형 이미지 Y offset(px)' })
+    imgOffY = 0;
+
     private lastKey = '';
     private imgNode: Node | null = null;
 
@@ -45,34 +61,44 @@ export class MapObject extends Component {
         this.tileH = Math.min(OBJ_MAX, Math.max(1, Math.round(this.tileH)));
         const w = this.tileW, h = this.tileH;
 
-        // 밑판 = 차지 영역 (타일 단위) — 격자 셀에 딱 맞게 스냅 (구역과 같은 방식)
+        // 밑판 = 차지 영역 (타일 단위) — 절대 청사진 좌표 기준으로 격자 셀에 스냅.
+        // 리전에 종속되면 부모(리전)가 반타일 오프셋일 수 있어, 로컬이 아닌 절대 좌표로 스냅해야 정렬됨.
         this.node.getComponent(UITransform)?.setContentSize(w * B, h * B);
+        const grp = this.node.parent;
+        const region = grp && grp.name === 'objects' && grp.parent?.getComponent(TileRegion) ? grp.parent : null;
+        const ox = region ? region.position.x : 0;
+        const oy = region ? region.position.y : 0;
         const p = this.node.position;
-        const gx0 = Math.floor(p.x / B - w / 2 + 0.5);
-        const gy0 = Math.floor(p.y / B - h / 2 + 0.5);
-        const fitX = (gx0 - 0.5 + w / 2) * B;
-        const fitY = (gy0 - 0.5 + h / 2) * B;
+        const ax = p.x + ox, ay = p.y + oy;
+        const gx0 = Math.floor(ax / B - w / 2 + 0.5);
+        const gy0 = Math.floor(ay / B - h / 2 + 0.5);
+        const fitX = (gx0 - 0.5 + w / 2) * B - ox;
+        const fitY = (gy0 - 0.5 + h / 2) * B - oy;
         if (p.x !== fitX || p.y !== fitY) this.node.setPosition(fitX, fitY, 0);
 
         const sf = objFrame(this.img);
-        const key = `${this.img},${!!sf},${w},${h}`;
+        const scale = this.imgScale || 1;
+        const key = `${this.img},${!!sf},${w},${h},${scale},${this.imgOffX},${this.imgOffY}`;
         if (key === this.lastKey) return;
         this.lastKey = key;
 
         const base = this.getComponent(Sprite);
 
         if (sf) {
-            // 외형 이미지 — 역보정으로 업라이트 표시, 폭 = 발자국 마름모의 화면 폭,
-            // 하단 = 발자국 마름모의 아래 꼭짓점 (오브젝트가 타일 위에 "서 있는" 모양)
+            // 외형 이미지 — 역보정으로 업라이트 표시. 크기는 타일 크기와 무관(원본×배율),
+            // 하단 = 발자국 마름모의 아래 꼭짓점(앵커 유지) + 화면 offset
             const view = this.ensureImgNode();
             const sp = view.getComponent(Sprite)!;
             sp.spriteFrame = sf;
             sp.markForUpdateRenderData();
-            const isoW = (w + h) * B / Math.SQRT2;
-            view.getComponent(UITransform)!.setContentSize(isoW, isoW * objAspect(this.img));
+            view.getComponent(UITransform)!.setContentSize(
+                sf.rect.width * scale * ISO_K, sf.rect.height * scale * ISO_K);
             // 마름모 아래 꼭짓점의 로컬 좌표 = (-(w+h)B/4, -(w+h)B/4) — 화면상 수평 중앙·최하단
             const corner = -(w + h) * B / 4;
-            view.setPosition(corner, corner, 0);
+            // 화면 px offset → 타일 offset(screenToGrid) → 청사진 로컬 (게임과 동일 정렬)
+            const offGx = this.imgOffX / TILE_W + this.imgOffY / TILE_H;
+            const offGy = -this.imgOffX / TILE_W + this.imgOffY / TILE_H;
+            view.setPosition(corner + offGx * B, corner + offGy * B, 0);
             view.active = true;
             if (base) {
                 // 발자국은 반투명으로 유지하고 싶지만 알파가 자식에 상속되므로 enabled로 숨김

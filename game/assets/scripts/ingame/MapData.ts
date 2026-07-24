@@ -45,16 +45,20 @@ export interface TileDef {
     dungeon?: number; // 던전 인스턴스 ID — 에디터 TileRegion.regionId에서 기록 (0/없음=자동 부여)
 }
 
-/** 맵 오브젝트 — 타일 위에 올라가는 배치물. 위치·크기 모두 타일 단위 (props의 후속 — px 실루엣 대체 예정) */
+/** 맵 오브젝트 — 타일 위에 올라가는 배치물. 점유(gx/gy/w/h)는 타일 단위, 외형(이미지)은 독립 크기 */
 export interface MapObjectDef {
     id?: string;   // 트리거가 참조하는 고유 ID
     kind: string; // 종류 라벨 (자유 — 예: crate, tree, meat_rack)
     img: number;  // 외형 — resources/maps/objs/{ID}_{이름}.png의 ID (0=이미지 없음, 실루엣 표시)
     gx: number;   // 차지 영역 최소 코너 (타일)
     gy: number;
-    w: number;    // 타일 단위 크기
+    w: number;    // 타일 단위 점유 크기 (발자국)
     h: number;
     walkable?: boolean; // true면 플레이어가 점유 타일을 통과할 수 있음
+    regionId?: number;  // 종속 리전 ID — 에디터에서 이 리전 objects 자식으로 편입 (0/없음=전역)
+    imgScale?: number;  // 외형 이미지 배율 (기본 1 — 타일 크기와 무관, 원본 픽셀 기준)
+    imgOffX?: number;   // 외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준
+    imgOffY?: number;   // 외형 이미지 Y offset(px)
 }
 
 export type TriggerType =

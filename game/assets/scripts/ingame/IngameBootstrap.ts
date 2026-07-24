@@ -771,17 +771,19 @@ export class IngameBootstrap extends Component {
                 isoW * 0.95, isoH * 0.95, this.color('#000000', 90));
             shadow.setPosition(0, 0, 0);
 
+            const scale = o.imgScale ?? 1;
+            const offX = o.imgOffX ?? 0, offY = o.imgOffY ?? 0;
             const art = this.objFrames.get(o.img);
             if (art) {
-                // 이미지 폭 = 발자국 아이소 폭, 높이는 원본 비율. 하단 = 발자국 아래 꼭짓점
-                const bh = isoW * (art.rect.height / art.rect.width);
-                const body = this.addSprite('Body', p, art, isoW, bh, this.color('#FFFFFF'));
-                body.setPosition(0, -isoH / 2 + bh / 2, 0);
+                // 이미지 크기 = 원본×배율 (타일 크기와 무관). 하단 = 발자국 아래 꼭짓점(앵커) + offset
+                const bw = art.rect.width * scale, bh = art.rect.height * scale;
+                const body = this.addSprite('Body', p, art, bw, bh, this.color('#FFFFFF'));
+                body.setPosition(offX, -isoH / 2 + bh / 2 + offY, 0);
             } else {
-                // 이미지 미지정 — 실루엣 박스 폴백 (에디터 마커와 같은 갈색)
+                // 이미지 미지정 — 실루엣 박스 폴백 (발자국 아이소 폭 기준)
                 const bh = isoW * 0.6;
                 const body = this.addSprite('Body', p, this.squareFrame(), isoW * 0.8, bh, this.color('#8A6A4A'));
-                body.setPosition(0, -isoH / 2 + bh / 2, 0);
+                body.setPosition(offX, -isoH / 2 + bh / 2 + offY, 0);
             }
         }
     }
