@@ -414,7 +414,10 @@ export class CombatSystem {
             }
             const d = Math.hypot(m.gx - p.gx, m.gy - p.gy);
             if (d <= BAL.meat.pickupR) {
-                if (this.meatCount >= BAL.stack.limit) {
+                // 비행 중인 고기도 곧 스택에 쌓이므로 예약된 칸으로 계산 — 한꺼번에 여러 개를 주워
+                // 한계(limit)를 초과하는 것을 방지 (도착 시점에 meatCount가 늘기 때문)
+                const flying = this.meats.filter(x => x.flying && x.node.active).length;
+                if (this.meatCount + flying >= BAL.stack.limit) {
                     this.showFull(); // 가득참 — 더 안 주움 (PHASE1 §3)
                 } else {
                     m.flying = true;
