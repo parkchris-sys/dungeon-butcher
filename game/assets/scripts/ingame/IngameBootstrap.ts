@@ -650,10 +650,25 @@ export class IngameBootstrap extends Component {
                 ? this.color('#FF6A5A') : this.color('#FFFFFF');
         }
 
-        // 카메라 팔로우 — World를 옮겨 플레이어를 화면 중앙에 고정
+        // 카메라 팔로우 — World를 옮겨 플레이어를 따라가되, 맵 경계 밖(void)이 과하게 보이지 않게
+        // 카메라 중심을 맵 범위 안으로 클램프한다. 가장자리에선 중앙 고정 대신 맵이 화면을 채운다.
         const z = this.zoom;
-        const targetX = -isoX(this.pgx, this.pgy) * z;
-        const targetY = -isoY(this.pgx, this.pgy) * z;
+        const R = this.map.groundRadius;
+        const vs = view.getVisibleSize();
+        const halfW = vs.width / 2 / z;   // 뷰포트 반폭(월드 단위)
+        const halfH = vs.height / 2 / z;
+        const halfMapX = R * TILE_W;      // 아이소 맵 x 반경 (isoX(R,-R))
+        const halfMapY = R * TILE_H;      // 아이소 맵 y 반경 (isoY(R,R))
+        const marginX = TILE_W;
+        const marginTop = IngameBootstrap.CHAR_PX + TILE_H; // 위: 캐릭터 머리 보이게 여유
+        const marginBottom = TILE_H;                         // 아래: 최소 여백
+        const limX = halfMapX + marginX - halfW;
+        const cx = math.clamp(isoX(this.pgx, this.pgy), Math.min(0, -limX), Math.max(0, limX));
+        const cy = math.clamp(isoY(this.pgx, this.pgy),
+            Math.min(0, -(halfMapY + marginBottom - halfH)),
+            Math.max(0, halfMapY + marginTop - halfH));
+        const targetX = -cx * z;
+        const targetY = -cy * z;
         const p = this.world.position;
         const t = Math.min(1, this.followSmooth * dt);
         this.world.setScale(z, z, 1);
