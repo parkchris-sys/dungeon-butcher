@@ -275,10 +275,11 @@ export class MapEditRoot extends Component {
             node.setPosition(n.position.x + offGx * B, n.position.y + offGy * B, 0);
             node.angle = -45;               // MapRoot의 +45 상쇄 → 업라이트
             node.setScale(1, 2, 1);         // _isoview scaleY 0.5 상쇄
+            // ⚠️ UITransform 먼저 — Sprite 추가 시 UITransform이 자동 부착되므로 순서 뒤바뀌면 중복 오류
+            const ut = node.addComponent(UITransform);
             const sp = node.addComponent(Sprite);
             sp.sizeMode = Sprite.SizeMode.CUSTOM;
             sp.trim = false;
-            const ut = node.addComponent(UITransform);
             if (f) {
                 ut.setContentSize(f.rect.width * scale * ISO_K, f.rect.height * scale * ISO_K);
                 sp.spriteFrame = f;
