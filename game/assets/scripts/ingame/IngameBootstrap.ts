@@ -722,13 +722,20 @@ export class IngameBootstrap extends Component {
             const id = r.floorImg ?? 0;
             if (!id) continue;
             const f = this.floorFrames.get(id);
-            if (!f) { console.warn(`[IngameBootstrap] 바닥 이미지 ${id}번을 찾지 못함 (구역 ${r.name})`); continue; }
             const scale = r.floorScale ?? 1;
-            const w = f.rect.width * scale, h = f.rect.height * scale;
             const cx = r.gx + (r.w - 1) / 2, cy = r.gy + (r.h - 1) / 2;
             const x = isoX(cx, cy) + (r.floorOffX ?? 0);
             const y = isoY(cx, cy) + (r.floorOffY ?? 0);
-            const node = this.addSprite(`floor_${r.name}`, floors, f, w, h, this.color('#FFFFFF'));
+            let node: Node, w: number, h: number;
+            if (f) {
+                w = f.rect.width * scale; h = f.rect.height * scale;
+                node = this.addSprite(`floor_${r.name}`, floors, f, w, h, this.color('#FFFFFF'));
+            } else {
+                // 이미지 없음 — 구역 크기 마젠타 플레이스홀더 (floorImg 지정됐으나 파일 못 찾음)
+                console.warn(`[IngameBootstrap] 바닥 이미지 ${id}번을 찾지 못함 (구역 ${r.name}) — 플레이스홀더 표시`);
+                w = (r.w + r.h) * TILE_W / 2; h = (r.w + r.h) * TILE_H / 2;
+                node = this.addSprite(`floor_missing_${r.name}`, floors, this.diamondFrame(), w, h, this.color('#DC46C8', 150));
+            }
             node.setPosition(x, y, 0);
             this.floorSprites.push({ node, x, y, hw: w / 2, hh: h / 2 });
         }

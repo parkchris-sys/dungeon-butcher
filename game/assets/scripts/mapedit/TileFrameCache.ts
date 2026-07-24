@@ -20,6 +20,11 @@ class FrameCache {
         return this.cache.get(id) ?? null;
     }
 
+    /** 폴더 재스캔 허용 — 새 이미지를 추가한 뒤 리로드 없이 반영 (다음 ensure()에서 다시 조회) */
+    retry() {
+        this.requested = false;
+    }
+
     /** 이미지가 로드된 원본 크기 비율(h/w) — 외형 세로 크기 계산용 (미로드 시 1) */
     aspect(id: number): number {
         const sf = this.cache.get(id);
@@ -91,3 +96,4 @@ export function ensureObjFrames() { objs.ensure(); }
 
 export function floorFrame(id: number): SpriteFrame | null { return floors.get(id); }
 export function ensureFloorFrames() { floors.ensure(); }
+export function retryFloorFrames() { floors.retry(); }

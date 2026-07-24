@@ -9,7 +9,7 @@ import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
 import { MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf } from './MapTrigger';
-import { ensureFloorFrames, floorFrame } from './TileFrameCache';
+import { ensureFloorFrames, floorFrame, retryFloorFrames } from './TileFrameCache';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
 import {
     parseMapDataJson, synthZoneDef, ZoneType, MapRegionInfo, MapObjectDef, MapUnitDef, MapTriggerDef,
@@ -227,6 +227,7 @@ export class MapEditRoot extends Component {
      * 별도 그룹(_바닥이미지)에 둬서 구역 마커의 반투명 알파가 상속되지 않게 한다.
      */
     private lastFloorKey = '';
+    private floorRescanTick = 0;
     private ensureFloorPreviews() {
         ensureFloorFrames();
         let group = this.node.getChildByName('_바닥이미지');
@@ -239,15 +240,22 @@ export class MapEditRoot extends Component {
             this.lastFloorKey = '';
         }
 
-        // 서명 — 구역 위치 + 바닥 파라미터 + 로드된 프레임 크기. 바뀔 때만 재생성
+        // 서명 — 구역 위치·크기 + 바닥 파라미터 + 로드된 프레임 크기. 바뀔 때만 재생성
         let sig = '';
+        let anyMissing = false;
         for (const n of this.regionsGroup().children) {
             const tr = n.getComponent(TileRegion);
             if (!tr || !tr.floorImg) continue;
             const f = floorFrame(tr.floorImg);
-            sig += `${n.position.x},${n.position.y},${tr.floorImg},${tr.floorScale},`
-                + `${tr.floorOffX},${tr.floorOffY},${f ? f.rect.width : 0}x${f ? f.rect.height : 0};`;
+            if (!f) anyMissing = true;
+            const ut = n.getComponent(UITransform);
+            sig += `${n.position.x},${n.position.y},${ut?.contentSize.width}x${ut?.contentSize.height},`
+                + `${tr.floorImg},${tr.floorScale},${tr.floorOffX},${tr.floorOffY},`
+                + `${f ? f.rect.width : 0}x${f ? f.rect.height : 0};`;
         }
+        // 이미지가 아직 안 잡힌 구역이 있으면 주기적으로 폴더 재스캔 (새 이미지 추가 시 리로드 불필요)
+        if (anyMissing && (++this.floorRescanTick % 30 === 0)) retryFloorFrames();
+
         if (sig === this.lastFloorKey) return;
         this.lastFloorKey = sig;
 
@@ -256,7 +264,6 @@ export class MapEditRoot extends Component {
             const tr = n.getComponent(TileRegion);
             if (!tr || !tr.floorImg) continue;
             const f = floorFrame(tr.floorImg);
-            if (!f) continue;
             const scale = tr.floorScale || 1;
             // 화면 px offset → 타일 offset(screenToGrid) → 청사진 로컬 (게임 isoX/isoY와 일치)
             const offGx = tr.floorOffX / TILE_W + tr.floorOffY / TILE_H;
@@ -268,12 +275,22 @@ export class MapEditRoot extends Component {
             node.setPosition(n.position.x + offGx * B, n.position.y + offGy * B, 0);
             node.angle = -45;               // MapRoot의 +45 상쇄 → 업라이트
             node.setScale(1, 2, 1);         // _isoview scaleY 0.5 상쇄
-            const ut = node.addComponent(UITransform);
-            ut.setContentSize(f.rect.width * scale * ISO_K, f.rect.height * scale * ISO_K);
             const sp = node.addComponent(Sprite);
             sp.sizeMode = Sprite.SizeMode.CUSTOM;
             sp.trim = false;
-            sp.spriteFrame = f;
+            const ut = node.addComponent(UITransform);
+            if (f) {
+                ut.setContentSize(f.rect.width * scale * ISO_K, f.rect.height * scale * ISO_K);
+                sp.spriteFrame = f;
+            } else {
+                // 이미지 없음 — 구역 크기의 마젠타 플레이스홀더 (floorImg 지정됐지만 파일 못 찾음)
+                const rut = n.getComponent(UITransform);
+                const w = Math.round((rut?.contentSize.width ?? B) / B);
+                const h = Math.round((rut?.contentSize.height ?? B) / B);
+                ut.setContentSize((w + h) * TILE_W / 2 * ISO_K, (w + h) * TILE_H / 2 * ISO_K);
+                sp.spriteFrame = this.findAnyFrame();
+                sp.color = new Color(220, 70, 200, 150);
+            }
         }
     }
 
