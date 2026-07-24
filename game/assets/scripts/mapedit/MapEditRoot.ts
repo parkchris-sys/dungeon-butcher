@@ -859,6 +859,7 @@ export class MapEditRoot extends Component {
             comp.tileW = o.w;
             comp.tileH = o.h;
             comp.walkable = o.walkable ?? false;
+            comp.floorDecal = o.floorDecal ?? false;
             comp.regionId = o.regionId ?? 0; // syncObjectRegions가 다음 틱에 리전으로 편입
             comp.imgScale = o.imgScale ?? 1;
             comp.imgOffX = o.imgOffX ?? 0;
@@ -1116,6 +1117,7 @@ export class MapEditRoot extends Component {
                     gy: Math.floor(ay / B - o.tileH / 2 + 0.5),
                     w: o.tileW, h: o.tileH,
                     walkable: o.walkable,
+                    floorDecal: o.floorDecal || undefined,
                     regionId: o.regionId || undefined,
                     imgScale: o.imgScale !== 1 ? o.imgScale : undefined,
                     imgOffX: o.imgOffX || undefined,

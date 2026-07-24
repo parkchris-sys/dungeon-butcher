@@ -37,6 +37,9 @@ export class MapObject extends Component {
     @property({ type: CCBoolean, tooltip: '체크하면 플레이어가 오브젝트 점유 타일로 이동할 수 있습니다.' })
     walkable = false;
 
+    @property({ type: CCBoolean, tooltip: '체크하면 바닥에 깔린 것으로 취급 — 항상 캐릭터보다 먼저(뒤에) 그려져 바닥에 붙은 효과 (카펫·자국 등)' })
+    floorDecal = false;
+
     @property({ type: CCInteger, tooltip: '종속 리전 ID — 값을 넣으면 이 오브젝트가 해당 리전의 objects 자식으로 편입되어\n'
         + '리전과 함께 움직입니다 (0=전역, 어느 리전에도 종속되지 않음)' })
     regionId = 0;

@@ -54,7 +54,8 @@ export interface MapObjectDef {
     gy: number;
     w: number;    // 타일 단위 점유 크기 (발자국)
     h: number;
-    walkable?: boolean; // true면 플레이어가 점유 타일을 통과할 수 있음
+    walkable?: boolean;  // true면 플레이어가 점유 타일을 통과할 수 있음
+    floorDecal?: boolean; // true면 바닥에 깔린 것 — 항상 캐릭터보다 먼저(뒤에) 그려짐
     regionId?: number;  // 종속 리전 ID — 에디터에서 이 리전 objects 자식으로 편입 (0/없음=전역)
     imgScale?: number;  // 외형 이미지 배율 (기본 1 — 타일 크기와 무관, 원본 픽셀 기준)
     imgOffX?: number;   // 외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준

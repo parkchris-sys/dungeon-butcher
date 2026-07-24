@@ -779,10 +779,14 @@ export class IngameBootstrap extends Component {
             const isoH = (o.w + o.h) / 2 * TILE_H;
             const p = this.makeNode(`obj_${o.kind}`, parent);
             p.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
+            // 바닥 데칼 = 항상 캐릭터보다 먼저(뒤에) 그려지게 — 정렬 깊이를 최후방으로
+            if (o.floorDecal) (p as unknown as { __sortY: number }).__sortY = 1e6;
 
-            const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
-                isoW * 0.95, isoH * 0.95, this.color('#000000', 90));
-            shadow.setPosition(0, 0, 0);
+            if (!o.floorDecal) { // 바닥 데칼은 그림자 없음(바닥에 붙음)
+                const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
+                    isoW * 0.95, isoH * 0.95, this.color('#000000', 90));
+                shadow.setPosition(0, 0, 0);
+            }
 
             const scale = o.imgScale ?? 1;
             const offX = o.imgOffX ?? 0, offY = o.imgOffY ?? 0;
