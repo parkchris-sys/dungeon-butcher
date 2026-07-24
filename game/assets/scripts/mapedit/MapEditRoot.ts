@@ -95,6 +95,7 @@ export class MapEditRoot extends Component {
         this.syncActiveRegion();
         this.syncPlacements();
         this.ensureFloorPreviews();
+        this.raiseOverlays();
 
         if (this.addRegion) { this.addRegion = false; this.createRegion(); }
         if (this.addObject) { this.addObject = false; this.createObject(); }
@@ -337,6 +338,22 @@ export class MapEditRoot extends Component {
         tr.regionId = this.nextRegionId(); // 모든 지역은 고유 ID
         this.ensurePropsGroup(n);
         console.log(`[MapEditRoot] 편집 구역 추가 (ID ${tr.regionId}) — 이름은 자유롭게, 위치 잡고 editTiles 체크`);
+    }
+
+    /**
+     * 오브젝트·배치물을 최상위로 — EditTiles로 생긴 타일 노드보다 뒤(위)에 그려지게.
+     * Cocos 2D는 시빌링 인덱스가 클수록 위에 렌더되므로 매 틱 마지막으로 밀어 준다.
+     * 리전 안: props → objects 순으로 올려 objects가 맨 위. 전역 objects도 MapRoot 맨 뒤로.
+     */
+    private raiseOverlays() {
+        for (const region of this.regionsGroup().children) {
+            const props = region.getChildByName('props');
+            const objs = region.getChildByName('objects');
+            if (props) props.setSiblingIndex(region.children.length - 1);
+            if (objs) objs.setSiblingIndex(region.children.length - 1);
+        }
+        const globalObjects = this.node.getChildByName('objects');
+        if (globalObjects) globalObjects.setSiblingIndex(this.node.children.length - 1);
     }
 
     /** 구역마다 objects 하위 그룹 — 종속 오브젝트가 구역 자식이라 구역과 함께 움직임 */
