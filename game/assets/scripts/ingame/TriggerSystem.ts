@@ -5,6 +5,7 @@ import { isoX, isoY, TILE_W } from './Projection';
 const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
 const COOK_S = 1.0;          // 고기 1개 요리 시간 — 기획 정의 전 (임의)
 const SPAWN_INTERVAL_S = 10; // NPC 스폰 주기 — 기획의 스폰 규칙 정의 전 (임의: 10초에 1명)
+const FLY_SORT = -1e6;       // 비행 아이템 정렬 깊이 — 실제 isoY보다 훨씬 작아 항상 최전면
 
 /**
  * 손님 상태 — CustomerSystem(이동)과 TriggerSystem(판매/정산)이 공유.
@@ -296,8 +297,8 @@ export class TriggerSystem {
         const node = this.host.ui.addSprite(name, this.host.entities, this.host.ui.square(),
             28, 16, this.host.ui.color(color));
         node.setPosition(sx, sy, 0);
-        // 비행/도착 아이템도 목적지 타일의 오브젝트보다 앞에 (도착 지점 기준 살짝 앞)
-        (node as unknown as { __sortY: number }).__sortY = ey - 1;
+        // 비행 중에는 모든 오브젝트보다 위 — 최전면 정렬값 (착지 후 pushItem이 타일 깊이로 재설정)
+        (node as unknown as { __sortY: number }).__sortY = FLY_SORT;
         this.flights.push({ node, sx, sy, ex, ey, elapsed: 0, done });
     }
 
