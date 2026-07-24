@@ -101,7 +101,11 @@ export class MapObject extends Component {
             view.setPosition(corner + offGx * B, corner + offGy * B, 0);
             view.active = true;
             if (base) {
-                // 발자국은 반투명으로 유지하고 싶지만 알파가 자식에 상속되므로 enabled로 숨김
+                // ⚠️ Sprite 색 알파는 자식(_img)에 상속됨 — 알파 255로 올려 이미지가 흐려지지 않게 한 뒤
+                // 밑판 자체는 enabled=false로 숨긴다
+                const c = base.color.clone();
+                c.a = 255;
+                base.color = c;
                 base.enabled = false;
             }
         } else {
