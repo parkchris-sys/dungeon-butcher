@@ -13,7 +13,7 @@ import { TileView } from './TileView';
 import { parseTiledMap } from './TiledLoader';
 import { CombatSystem } from './CombatSystem';
 import { TriggerNpc, TriggerSystem } from './TriggerSystem';
-import { CustomerSystem } from './CustomerSystem';
+import { CustomerSystem, NpcTemplate } from './CustomerSystem';
 
 const { ccclass, property } = _decorator;
 
@@ -93,6 +93,7 @@ export class IngameBootstrap extends Component {
     private triggerSystem: TriggerSystem | null = null;
     private customerSystem: CustomerSystem | null = null;
     private triggerNpcs: TriggerNpc[] = []; // 손님(customer) NPC만 — 트리거·이동 시스템이 공유
+    private npcTemplates: NpcTemplate[] = []; // 배치된 손님 NPC = 스폰 시 복제할 템플릿
     private meatHud: Label | null = null;
     private goldHud: Label | null = null;
     private goldCount = 0;
@@ -297,10 +298,9 @@ export class IngameBootstrap extends Component {
             square: () => this.squareFrame(),
             diamond: () => this.diamondFrame(),
             color: (hex, a) => this.color(hex, a),
-            unitFrame: (img) => this.unitFrames.get(img) ?? null,
             moodFrame: (mood) => this.moodFrames.get(mood) ?? null,
             charPx: IngameBootstrap.CHAR_PX,
-        }, this.triggerNpcs);
+        }, this.triggerNpcs, this.npcTemplates);
 
         this.triggerSystem = new TriggerSystem({
             entities: this.entities,
@@ -804,14 +804,20 @@ export class IngameBootstrap extends Component {
     /** 손님으로 취급하는 NPC kind — 대기열 이동·판매 루프 대상 (그 외 NPC는 정적 표시) */
     private static readonly CUSTOMER_KINDS = new Set(['customer', '손님']);
 
-    // ── NPC (손님은 스폰 트리거가 생성 → CustomerSystem이 이동/상태 처리, 나머지는 정적 표시) ──
+    // ── NPC (손님 kind = 스폰 트리거로 복제될 템플릿, 나머지는 정적 표시) ──
     private buildNpcs(parent: Node) {
         const c = IngameBootstrap.CHAR_PX;
-        this.triggerNpcs = []; // 손님은 CustomerSystem이 스폰 시 채움 (여기선 정적 NPC만 렌더)
+        this.triggerNpcs = [];   // 손님은 CustomerSystem이 스폰 시 채움
+        this.npcTemplates = [];  // 배치된 손님 = 복제 템플릿
+        // 손님 템플릿은 숨김 컨테이너에 만들어 두고, 스폰 시 복제해서 쓴다
+        const templatesRoot = this.makeNode('NpcTemplates', this.node);
+        templatesRoot.active = false;
+
         for (const u of this.map.npcs ?? []) {
-            if (IngameBootstrap.CUSTOMER_KINDS.has(u.kind)) continue; // 손님은 스폰 트리거로 생성
-            const p = this.makeNode(`npc_${u.kind}`, parent);
-            p.setPosition(isoX(u.gx, u.gy), isoY(u.gx, u.gy), 0);
+            const isCustomer = IngameBootstrap.CUSTOMER_KINDS.has(u.kind);
+            const host = isCustomer ? templatesRoot : parent;
+            const p = this.makeNode(`npc_${u.kind}`, host);
+            if (!isCustomer) p.setPosition(isoX(u.gx, u.gy), isoY(u.gx, u.gy), 0);
 
             const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
                 TILE_W * 0.55, TILE_H * 0.55, this.color('#000000', 90));
@@ -826,6 +832,8 @@ export class IngameBootstrap extends Component {
                 body = this.addSprite('Body', p, this.squareFrame(), c * 0.6, c * 0.8, this.color('#3BAF6E'));
             }
             body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
+
+            if (isCustomer) this.npcTemplates.push({ node: p, img: u.img, kind: u.kind });
         }
     }
 
