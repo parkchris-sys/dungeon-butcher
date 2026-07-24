@@ -89,10 +89,12 @@ export function ensureTileFrames() { tiles.ensure(); }
 export function unitFrame(id: number): SpriteFrame | null { return units.get(id); }
 export function unitAspect(id: number): number { return units.aspect(id); }
 export function ensureUnitFrames() { units.ensure(); }
+export function retryUnitFrames() { units.retry(); }
 
 export function objFrame(id: number): SpriteFrame | null { return objs.get(id); }
 export function objAspect(id: number): number { return objs.aspect(id); }
 export function ensureObjFrames() { objs.ensure(); }
+export function retryObjFrames() { objs.retry(); }
 
 export function floorFrame(id: number): SpriteFrame | null { return floors.get(id); }
 export function ensureFloorFrames() { floors.ensure(); }

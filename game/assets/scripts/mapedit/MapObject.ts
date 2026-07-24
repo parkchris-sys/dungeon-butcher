@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCFloat, CCString, CCBoolean, CCObject } from 'cc';
 import { EDITOR } from 'cc/env';
-import { objFrame, ensureObjFrames } from './TileFrameCache';
+import { objFrame, ensureObjFrames, retryObjFrames } from './TileFrameCache';
 import { TileRegion } from './TileRegion';
 import { TILE_W, TILE_H } from '../ingame/Projection';
 
@@ -52,10 +52,13 @@ export class MapObject extends Component {
 
     private lastKey = '';
     private imgNode: Node | null = null;
+    private rescanTick = 0;
 
     update() {
         if (!EDITOR) return;
         ensureObjFrames();
+        // 이미지가 아직 안 잡혔으면 주기적으로 objs 폴더 재스캔 — 새 이미지 추가 시 리로드 불필요
+        if (this.img > 0 && !objFrame(this.img) && (++this.rescanTick % 30 === 0)) retryObjFrames();
 
         this.tileW = Math.min(OBJ_MAX, Math.max(1, Math.round(this.tileW)));
         this.tileH = Math.min(OBJ_MAX, Math.max(1, Math.round(this.tileH)));
