@@ -12,7 +12,7 @@ import { TriggerNpc } from './TriggerSystem';
  * 흐름: 스폰 → 대기열(attr=2) 따라 이동(waiting) → 줄 끝에서 요리 대기(wants-food)
  *       → 판매대가 요리 주면 만족(satisfied·기분 행복) → 정산대가 돈 회수하면 퇴장(leaving)
  *       → 퇴장(attr=3) 따라 이동 → 끝나면 비활성(done, 풀 재사용).
- * 타일당 2명: 2:1 타일을 좌/우 반으로 나눠 슬롯 0/1.
+ * 타일당 1명: 한 칸에 한 명만 점유(슬롯 하나).
  * 참을성/기분/성향(전부 임의): 성향 10/30/9999, 10초마다 1↓·0이면 기분↓+리셋, 화남 소진 시 포기→퇴장.
  */
 
@@ -21,7 +21,8 @@ const PATIENCE_TICK_S = 10;
 const TEMPER_PATIENCE = [10, 30, 9999]; // 급함/느긋함/시간무한 — (임의)
 
 const ANGRY = 0, BORED = 1, NORMAL = 2, HAPPY = 3;
-const SLOT_OFF: [number, number][] = [[-TILE_W / 4, TILE_H / 8], [TILE_W / 4, -TILE_H / 8]];
+// 타일당 1명 — 슬롯 하나(타일 중심)
+const SLOT_OFF: [number, number][] = [[0, 0]];
 
 export interface NpcTemplate { node: Node; img: number; kind: string; }
 
@@ -72,9 +73,8 @@ export class CustomerSystem {
 
     /** 스폰 트리거 요청 — (gx,gy) 타일 빈 슬롯에 손님 1명. 템플릿 복제(없으면 제네릭), spawnId 부여 */
     spawn(gx: number, gy: number, img: number) {
-        const slot = !this.slotOccupied(gx, gy, 0, null) ? 0
-            : !this.slotOccupied(gx, gy, 1, null) ? 1 : -1;
-        if (slot < 0) return; // 스폰 지점 두 슬롯 모두 참 — 이번 주기 건너뜀
+        const slot = this.slotOccupied(gx, gy, 0, null) ? -1 : 0;
+        if (slot < 0) return; // 스폰 지점 타일이 이미 참 — 이번 주기 건너뜀
 
         const tmpl = this.pickTemplate(img);
         const tkey = tmpl ? tmpl.img : -1;
@@ -216,9 +216,7 @@ export class CustomerSystem {
             if (c.visited.has(cellKey(gx, gy))) continue;
             if (this.host.tileAttrAt(gx, gy) !== desired) continue;
             anyTile = true;
-            for (const slot of [0, 1]) {
-                if (!this.slotOccupied(gx, gy, slot, c)) return { gx, gy, slot };
-            }
+            if (!this.slotOccupied(gx, gy, 0, c)) return { gx, gy, slot: 0 };
         }
         return anyTile ? 'blocked' : 'end';
     }
