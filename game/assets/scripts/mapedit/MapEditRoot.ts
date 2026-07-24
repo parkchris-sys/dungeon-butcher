@@ -790,6 +790,7 @@ export class MapEditRoot extends Component {
             comp.tileH = t.h;
             comp.triggerLink1 = t.triggerLinks[0] ?? '';
             comp.objectLink1 = t.objectLinks[0] ?? '';
+            comp.npcImg = t.npcImg ?? 0;
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -1067,6 +1068,7 @@ export class MapEditRoot extends Component {
                 h: t.tileH,
                 triggerLinks: t.triggerLink1.trim() ? [t.triggerLink1.trim()] : [],
                 objectLinks: t.objectLink1.trim() ? [t.objectLink1.trim()] : [],
+                npcImg: t.npcImg || undefined,
             });
         }
         for (const t of triggerList) {

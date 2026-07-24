@@ -149,6 +149,7 @@ export class IngameBootstrap extends Component {
     private floorFrames = new Map<number, SpriteFrame>();
     private objFrames = new Map<number, SpriteFrame>();
     private unitFrames = new Map<number, SpriteFrame>();
+    private moodFrames = new Map<number, SpriteFrame>(); // 기분 이모티콘 (0 화남..3 행복)
     /** 던전 ID → 스폰 몬스터 종류 (맵 에디터 몬스터 배치에서 파생) */
     private spawnKinds = new Map<number, string[]>();
     /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
@@ -160,7 +161,7 @@ export class IngameBootstrap extends Component {
      * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
      */
     private loadZoneTextures(done: () => void) {
-        let pending = 4; // 플레이어 잡 + 타일·오브젝트·유닛 폴더 스캔
+        let pending = 5; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 스캔
 
         const playerJobs: [string, (f: SpriteFrame) => void][] = [
             ['chars/player_left',  f => { this.playerFrames.left = f; }],
@@ -194,6 +195,7 @@ export class IngameBootstrap extends Component {
         scanDir('maps/floors', this.floorFrames);
         scanDir('maps/objs', this.objFrames);
         scanDir('maps/units', this.unitFrames);
+        scanDir('maps/moods', this.moodFrames);
     }
 
     private buildWorld() {
@@ -286,6 +288,20 @@ export class IngameBootstrap extends Component {
             onPlayerHit: () => { this.playerFlashT = 0.15; },
             onPlayerDeath: () => this.respawnPlayer(),
         });
+        // 손님 시스템 먼저 — 스폰 트리거가 이 시스템에 스폰을 요청한다 (triggerNpcs 공유)
+        this.customerSystem = new CustomerSystem({
+            entities: this.entities,
+            tileAttrAt: (gx, gy) => this.tileAttrAt(gx, gy),
+            makeNode: (n, p) => this.makeNode(n, p),
+            addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
+            square: () => this.squareFrame(),
+            diamond: () => this.diamondFrame(),
+            color: (hex, a) => this.color(hex, a),
+            unitFrame: (img) => this.unitFrames.get(img) ?? null,
+            moodFrame: (mood) => this.moodFrames.get(mood) ?? null,
+            charPx: IngameBootstrap.CHAR_PX,
+        }, this.triggerNpcs);
+
         this.triggerSystem = new TriggerSystem({
             entities: this.entities,
             playerNode: () => this.player,
@@ -295,6 +311,7 @@ export class IngameBootstrap extends Component {
                 this.goldCount += amount;
                 if (this.goldHud) this.goldHud.string = `골드 ${this.goldCount}`;
             },
+            spawnCustomer: (gx, gy, img) => this.customerSystem?.spawn(gx, gy, img),
             ui: {
                 makeNode: (n, p) => this.makeNode(n, p),
                 addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
@@ -302,10 +319,6 @@ export class IngameBootstrap extends Component {
                 color: (hex, a) => this.color(hex, a),
             },
         }, this.map.triggers ?? [], this.triggerNpcs, this.map.objects ?? []);
-        // 손님 이동·상태머신 — triggerNpcs(손님 목록)를 TriggerSystem과 공유
-        this.customerSystem = new CustomerSystem({
-            tileAttrAt: (gx, gy) => this.tileAttrAt(gx, gy),
-        }, this.triggerNpcs);
         this.ready = true;
     }
 
@@ -791,11 +804,12 @@ export class IngameBootstrap extends Component {
     /** 손님으로 취급하는 NPC kind — 대기열 이동·판매 루프 대상 (그 외 NPC는 정적 표시) */
     private static readonly CUSTOMER_KINDS = new Set(['customer', '손님']);
 
-    // ── NPC (손님은 CustomerSystem이 이동/상태 처리, 나머지는 정적 표시) ──
+    // ── NPC (손님은 스폰 트리거가 생성 → CustomerSystem이 이동/상태 처리, 나머지는 정적 표시) ──
     private buildNpcs(parent: Node) {
         const c = IngameBootstrap.CHAR_PX;
-        this.triggerNpcs = [];
+        this.triggerNpcs = []; // 손님은 CustomerSystem이 스폰 시 채움 (여기선 정적 NPC만 렌더)
         for (const u of this.map.npcs ?? []) {
+            if (IngameBootstrap.CUSTOMER_KINDS.has(u.kind)) continue; // 손님은 스폰 트리거로 생성
             const p = this.makeNode(`npc_${u.kind}`, parent);
             p.setPosition(isoX(u.gx, u.gy), isoY(u.gx, u.gy), 0);
 
@@ -812,13 +826,6 @@ export class IngameBootstrap extends Component {
                 body = this.addSprite('Body', p, this.squareFrame(), c * 0.6, c * 0.8, this.color('#3BAF6E'));
             }
             body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
-
-            if (IngameBootstrap.CUSTOMER_KINDS.has(u.kind)) {
-                this.triggerNpcs.push({
-                    def: u, node: p, gx: u.gx, gy: u.gy,
-                    state: 'wants-food', served: false, paid: false,
-                });
-            }
         }
     }
 

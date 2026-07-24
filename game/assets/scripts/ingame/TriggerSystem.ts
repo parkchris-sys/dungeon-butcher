@@ -2,8 +2,9 @@ import { Color, Node, SpriteFrame } from 'cc';
 import { MapObjectDef, MapTriggerDef, MapUnitDef, TriggerType } from './MapData';
 import { isoX, isoY, TILE_W } from './Projection';
 
-const TRANSFER_S = 0.3; // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
-const COOK_S = 1.0;     // 고기 1개 요리 시간 — 기획 정의 전 (임의)
+const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
+const COOK_S = 1.0;          // 고기 1개 요리 시간 — 기획 정의 전 (임의)
+const SPAWN_INTERVAL_S = 10; // NPC 스폰 주기 — 기획의 스폰 규칙 정의 전 (임의: 10초에 1명)
 
 /**
  * 손님 상태 — CustomerSystem(이동)과 TriggerSystem(판매/정산)이 공유.
@@ -16,6 +17,8 @@ export interface TriggerNpc {
     def: MapUnitDef;
     node: Node;
     gx: number; gy: number; // 현재 점유 타일 — CustomerSystem이 매 프레임 갱신
+    slot: number;           // 타일 내 슬롯 (0/1) — 한 타일에 두 명이 반씩
+    spawnId: number;        // 스폰 순서 — 스폰 트리거가 1씩 증가해 부여 (작을수록 먼저 온 손님)
     state: CustomerState;
     served: boolean;        // 판매대가 이미 요리를 준 손님인지 (중복 제공 방지)
     paid: boolean;          // 정산대가 이미 돈을 회수한 손님인지 (중복 회수 방지)
@@ -34,6 +37,8 @@ export interface TriggerHost {
     playerG(): { gx: number; gy: number };
     takePlayerMeat(): boolean;
     addGold(amount: number): void;
+    /** NPC 스폰 요청 — CustomerSystem이 풀에서 손님 1명 활성화 후 spawnId 부여 */
+    spawnCustomer(gx: number, gy: number, img: number): void;
     ui: TriggerUi;
 }
 
@@ -96,6 +101,7 @@ export class TriggerSystem {
                 case 'purchase-spot': this.updatePurchaseSpot(trigger); break;
                 case 'checkout': this.updateCheckout(trigger); break;
                 case 'money-pickup': this.updateMoneyPickup(trigger); break;
+                case 'npc-spawn': this.updateNpcSpawn(trigger); break;
             }
         }
     }
@@ -141,7 +147,8 @@ export class TriggerSystem {
         if (source.timer > 0 || source.cooked.length === 0) return;
         const spot = this.linked(source, 0, 'purchase-spot');
         if (!spot) return;
-        const customer = spot.customers.find(n => n.state === 'wants-food' && !n.served);
+        // 구매위치에 여러 명이면 spawnId가 가장 작은(먼저 온) 손님부터 응대
+        const customer = this.front(spot.customers, n => n.state === 'wants-food' && !n.served);
         if (!customer) return;
 
         const food = source.cooked.pop();
@@ -159,7 +166,7 @@ export class TriggerSystem {
         if (source.timer > 0) return;
         const spot = this.linked(source, 0, 'purchase-spot');
         if (!spot) return;
-        const customer = spot.customers.find(n => n.state === 'satisfied' && !n.paid);
+        const customer = this.front(spot.customers, n => n.state === 'satisfied' && !n.paid);
         if (!customer) return;
 
         customer.paid = true;
@@ -171,6 +178,24 @@ export class TriggerSystem {
                 // 퇴장 시작 — 실제 내보내기(퇴장 타일 따라 이동·비활성)는 CustomerSystem이 처리
                 customer.state = 'leaving';
             });
+    }
+
+    private updateNpcSpawn(t: RuntimeTrigger) {
+        if (t.timer > 0) return;
+        t.timer = SPAWN_INTERVAL_S;
+        // 스폰 트리거 타일 중심에 손님 1명 요청 — spawnId 부여·슬롯 배치는 CustomerSystem
+        const cx = Math.round(t.def.gx + (t.def.w - 1) / 2);
+        const cy = Math.round(t.def.gy + (t.def.h - 1) / 2);
+        this.host.spawnCustomer(cx, cy, t.def.npcImg ?? 0);
+    }
+
+    /** 조건을 만족하는 손님 중 spawnId가 가장 작은(먼저 온) 한 명 — 구매위치 우선순위 규칙 */
+    private front(list: TriggerNpc[], ok: (n: TriggerNpc) => boolean): TriggerNpc | null {
+        let best: TriggerNpc | null = null;
+        for (const n of list) {
+            if (ok(n) && (!best || n.spawnId < best.spawnId)) best = n;
+        }
+        return best;
     }
 
     private updatePurchaseSpot(spot: RuntimeTrigger) {

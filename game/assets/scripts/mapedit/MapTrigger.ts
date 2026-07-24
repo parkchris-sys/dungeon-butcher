@@ -16,6 +16,7 @@ export enum MapTriggerKind {
     PurchaseSpot = 3,
     Checkout = 4,
     MoneyPickup = 5,
+    NpcSpawn = 6,
 }
 
 const TYPE_NAMES: TriggerType[] = [
@@ -25,6 +26,7 @@ const TYPE_NAMES: TriggerType[] = [
     'purchase-spot',
     'checkout',
     'money-pickup',
+    'npc-spawn',
 ];
 
 const TYPE_COLORS = [
@@ -34,6 +36,7 @@ const TYPE_COLORS = [
     '#4CA66B',
     '#5379C8',
     '#9B63C5',
+    '#3FBFBF',
 ];
 
 export function triggerTypeOf(kind: MapTriggerKind): TriggerType {
@@ -69,6 +72,9 @@ export class MapTrigger extends Component {
 
     @property({ type: CCString, tooltip: '연결 오브젝트 1번의 objectId (선택)' })
     objectLink1 = '';
+
+    @property({ type: CCInteger, tooltip: 'NPC스폰(npc-spawn) 전용: 스폰할 NPC 외형 ID (maps/units, 0=기본)' })
+    npcImg = 0;
 
     update() {
         if (!EDITOR) return;

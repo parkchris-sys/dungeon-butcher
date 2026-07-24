@@ -67,7 +67,8 @@ export type TriggerType =
     | 'serving-counter'
     | 'purchase-spot'
     | 'checkout'
-    | 'money-pickup';
+    | 'money-pickup'
+    | 'npc-spawn';
 
 /** 타일 영역 트리거. 연결 대상은 순서가 의미를 가지므로 배열 인덱스를 유지한다. */
 export interface MapTriggerDef {
@@ -79,6 +80,7 @@ export interface MapTriggerDef {
     h: number;
     triggerLinks: string[];
     objectLinks: string[];
+    npcImg?: number; // npc-spawn 전용: 스폰할 NPC 외형 ID (maps/units, 0=기본)
 }
 
 /** 유닛 — 몬스터/NPC 배치. 타일 1칸 점유, 위치는 타일 중심 */
