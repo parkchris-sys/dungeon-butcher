@@ -94,8 +94,8 @@ export class IngameBootstrap extends Component {
     private customerSystem: CustomerSystem | null = null;
     private triggerNpcs: TriggerNpc[] = []; // 손님(customer) NPC만 — 트리거·이동 시스템이 공유
     private npcTemplates: NpcTemplate[] = []; // 배치된 손님 NPC = 스폰 시 복제할 템플릿
-    private meatHud: Label | null = null;
-    private goldHud: Label | null = null;
+    private hpBarRoot: Node | null = null;       // 캐릭터 머리 위 HP바 (사냥지대 한정)
+    private goldPopups: { node: Node; t: number }[] = []; // "+N" 골드 팝업
     private goldCount = 0;
     private hpFill: Node | null = null;
     private playerFlashT = 0;
@@ -256,7 +256,7 @@ export class IngameBootstrap extends Component {
         this.buildZoneBanner();
         this.buildJoystick();
         this.buildZoomPanel();
-        this.buildMeatHud();
+        this.buildPlayerHpBar(); // 상시 코너 HUD 없음 — HP바만 캐릭터 머리 위 (BIBLE §10-a)
         this.detectZone();
         this.sortEntities();
         this.tileView!.update(this.pgx, this.pgy, this.zoom); // 초기 타일 채우기
@@ -283,7 +283,7 @@ export class IngameBootstrap extends Component {
             },
             onMeatCount: (n, max) => {
                 this.carryCount = n; // 무게 페널티 반영
-                if (this.meatHud) this.meatHud.string = `고기 ${n}/${max}`;
+                // 운반량 숫자 표시 없음 — 등짐 스택 자체로만 표현 (BIBLE §10-a)
             },
             onHp: (hp, max) => this.setHpBar(hp, max),
             onPlayerHit: () => { this.playerFlashT = 0.15; },
@@ -309,7 +309,7 @@ export class IngameBootstrap extends Component {
             takePlayerMeat: () => this.combat?.takeTopMeat() ?? false,
             addGold: amount => {
                 this.goldCount += amount;
-                if (this.goldHud) this.goldHud.string = `골드 ${this.goldCount}`;
+                this.showGoldGain(amount); // 상시 카운터 대신 "+N" 팝업 (BIBLE §10-a)
             },
             spawnCustomer: (gx, gy, img) => this.customerSystem?.spawn(gx, gy, img),
             ui: {
@@ -371,51 +371,66 @@ export class IngameBootstrap extends Component {
         }
     }
 
-    /** 고기 카운터 + HP 바 HUD (좌상단) — PHASE1 §10 월드-인 최소 HUD */
-    private buildMeatHud() {
-        const hud = this.makeNode('MeatHud', this.node);
-        const w = hud.addComponent(Widget);
-        w.isAlignTop = true; w.top = 80;
-        w.isAlignLeft = true; w.left = 40;
-        this.meatHud = hud.addComponent(Label);
-        this.meatHud.fontSize = 48;
-        this.meatHud.isBold = true;
-        this.meatHud.color = this.color('#F7EFD8');
-        this.meatHud.horizontalAlign = Label.HorizontalAlign.LEFT;
+    /**
+     * HP 바 — 캐릭터 머리 위 플로팅(다이제틱). BIBLE §10-a (2026-07-24 확정):
+     * 상시 코너 HUD 없음 · HP바는 사냥지대에서만 표시(마을에서는 숨김) ·
+     * 운반량은 등짐 스택 자체로만 표현(숫자 없음) · 골드는 획득 시 "+N" 팝업만.
+     */
+    private static readonly HPBAR_W = 96;
+    private static readonly HPBAR_H = 10;
 
-        const gold = this.makeNode('GoldHud', this.node);
-        const goldWidget = gold.addComponent(Widget);
-        goldWidget.isAlignTop = true; goldWidget.top = 80;
-        goldWidget.isAlignLeft = true; goldWidget.left = 360;
-        this.goldHud = gold.addComponent(Label);
-        this.goldHud.string = `골드 ${this.goldCount}`;
-        this.goldHud.fontSize = 48;
-        this.goldHud.isBold = true;
-        this.goldHud.color = this.color('#F0B429');
-        this.goldHud.horizontalAlign = Label.HorizontalAlign.LEFT;
-
-        // HP 바 (고기 카운터 아래)
-        const bar = this.makeNode('HpBar', this.node);
-        const bw = bar.addComponent(Widget);
-        bw.isAlignTop = true; bw.top = 150;
-        bw.isAlignLeft = true; bw.left = 40;
-        let barTran = bar.getComponent(UITransform);
-        if (!barTran) {
-            bar.addComponent(UITransform).setContentSize(300, 26);
-        } else {
-            barTran.setContentSize(300, 26);
-        }
-        const bg = this.addSprite('Bg', bar, this.squareFrame(), 300, 26, this.color('#2A2230', 220));
-        bg.setPosition(150, 0, 0); // 좌측 기준 정렬
-        this.hpFill = this.addSprite('Fill', bar, this.squareFrame(), 292, 18, this.color('#C0503F'));
+    private buildPlayerHpBar() {
+        const W = IngameBootstrap.HPBAR_W, H = IngameBootstrap.HPBAR_H;
+        const bar = this.makeNode('HpBar', this.player); // 플레이어 자식 — 이동을 따라감
+        bar.setPosition(0, IngameBootstrap.CHAR_PX + 18, 0);
+        bar.addComponent(UITransform).setContentSize(W, H);
+        const bg = this.addSprite('Bg', bar, this.squareFrame(), W, H, this.color('#1A1520', 200));
+        bg.setPosition(0, 0, 0);
+        this.hpFill = this.addSprite('Fill', bar, this.squareFrame(), W - 4, H - 4, this.color('#C0503F'));
+        this.hpBarRoot = bar;
         this.setHpBar(1, 1);
+        this.refreshHpBarVisible();
     }
 
     private setHpBar(hp: number, max: number) {
         if (!this.hpFill) return;
-        const w = Math.max(0, 292 * (hp / max));
-        this.hpFill.getComponent(UITransform)!.setContentSize(w, 18);
-        this.hpFill.setPosition(4 + w / 2, 0, 0); // 왼쪽부터 줄어드는 바
+        const full = IngameBootstrap.HPBAR_W - 4;
+        const w = Math.max(0, full * (hp / max));
+        this.hpFill.getComponent(UITransform)!.setContentSize(w, IngameBootstrap.HPBAR_H - 4);
+        this.hpFill.setPosition(-full / 2 + w / 2, 0, 0); // 왼쪽부터 줄어드는 바
+    }
+
+    /** HP바는 사냥지대(던전)에서만 — 마을에서는 숨김 (BIBLE §10-a) */
+    private refreshHpBarVisible() {
+        if (this.hpBarRoot) this.hpBarRoot.active = this.currentZone?.kind === 'dungeon';
+    }
+
+    /** 골드 획득 "+N" 팝업 — 상시 카운터 대신 순간 연출 (BIBLE §10-a) */
+    private showGoldGain(amount: number) {
+        const node = this.makeNode('GoldGain', this.entities);
+        const p = this.player.position;
+        node.setPosition(p.x, p.y + IngameBootstrap.CHAR_PX, 0);
+        (node as unknown as { __sortY: number }).__sortY = -1e6; // 팝업은 최전면
+        const lb = node.addComponent(Label);
+        lb.string = `+${amount}`;
+        lb.fontSize = 44;
+        lb.isBold = true;
+        lb.color = this.color('#F0B429');
+        this.goldPopups.push({ node, t: 0 });
+    }
+
+    private updateGoldPopups(dt: number) {
+        for (let i = this.goldPopups.length - 1; i >= 0; i--) {
+            const g = this.goldPopups[i];
+            g.t += dt;
+            g.node.setPosition(g.node.position.x, g.node.position.y + 60 * dt, 0); // 위로 떠오름
+            const op = g.node.getComponent(UIOpacity) ?? g.node.addComponent(UIOpacity);
+            op.opacity = 255 * Math.max(0, 1 - g.t / 0.9);
+            if (g.t >= 0.9) {
+                g.node.destroy();
+                this.goldPopups.splice(i, 1);
+            }
+        }
     }
 
     // ── 존 진입 배너 (화면 상단 중앙, 떴다가 페이드아웃) ──
@@ -634,6 +649,7 @@ export class IngameBootstrap extends Component {
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
+        this.updateGoldPopups(dt);
 
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
@@ -722,6 +738,7 @@ export class IngameBootstrap extends Component {
         if (found !== this.currentZone || did !== this.currentDungeonId) {
             this.currentZone = found;
             this.currentDungeonId = did;
+            this.refreshHpBarVisible(); // HP바는 사냥지대에서만 (BIBLE §10-a)
             // 던전은 지역 이름(d1 등) 우선 표시 — 던전끼리 붙어 있어도 이동 시 배너 재표시
             if (found) this.showZoneBanner(found, did > 0 ? this.dungeonNames.get(did) : undefined);
         }

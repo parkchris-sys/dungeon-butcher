@@ -4,14 +4,14 @@ import { isoX, isoY } from './Projection';
 /**
  * 던전 코어: 웨이브 스폰 → 자동 근접공격 → 고기 드랍/픽업 → 등 뒤 스택★ (PHASE1 §3).
  * 순수 로직 클래스 — 부트스트랩이 host 파사드로 노드 생성/월드 상태를 제공한다.
- * 슬라임/고기 노드는 풀링으로 재사용 (물량전 GC 방지).
+ * 몬스터(닭)/고기 노드는 풀링으로 재사용 (물량전 GC 방지).
  */
 
-/** 밸런스 — BALANCE.md "Phase 1 임시 밸런스 v0.2 (2026-07-10)"의 복사본. 원본은 문서. */
+/** 밸런스 — BALANCE.md "Phase 1 임시 밸런스 v0.3 (2026-07-24 난이도 +30%)"의 복사본. 원본은 문서. */
 const BAL = {
-    wave: { maxAlive: 18, batchMin: 3, batchMax: 4, intervalS: 2.0, rMin: 8, rMax: 11 },
-    slime: { hp: 2, speed: 1.3, contactR: 0.55, atk: 1, separationR: 0.9 }, // separationR: 몹끼리 최소 간격(타일, 임의)
-    player: { maxHp: 10, invulnS: 0.6, hubRegen: 2 },      // invuln: 캐릭터 기준 전체 공유(확정), hubRegen: 마을 HP/s
+    wave: { maxAlive: 22, batchMin: 3, batchMax: 4, intervalS: 1.6, rMin: 8, rMax: 11 },
+    chicken: { hp: 2, speed: 1.4, contactR: 0.55, atk: 1, separationR: 0.9 }, // 닭 (구 슬라임) — separationR: 몹끼리 최소 간격(타일, 임의)
+    player: { maxHp: 10, invulnS: 0.5, hubRegen: 2 },      // invuln: 캐릭터 기준 전체 공유(확정), 수치는 v0.3. hubRegen: 마을 HP/s
     attack: { intervalS: 0.45, range: 1.8, knockback: 0.7 },
     meat: { dropChance: 0.6, dropMax: 2, pickupR: 0.9, flyS: 0.18, maxGround: 40 },
     stack: { limit: 10, pieceH: 15, swayAmp: 4, swaySpeed: 3 },
@@ -19,12 +19,12 @@ const BAL = {
 
 /**
  * 던전별 스폰 몬스터 종류 — 던전 ID(1부터) → 종류 목록 (임의 — 기획 표 확정 시 BALANCE로 이관).
- * 미지정 던전은 DEFAULT_KINDS. 현재 구현된 종류는 slime뿐이라 구조만 준비됨.
+ * 미지정 던전은 DEFAULT_KINDS. 현재 구현된 종류는 chicken(닭)뿐이라 구조만 준비됨.
  */
 const DUNGEON_KINDS: Record<number, string[]> = {
-    // 예: 1: ['slime'], 2: ['slime', 'goblin'],
+    // 예: 1: ['chicken'], 2: ['chicken', 'pig'],
 };
-const DEFAULT_KINDS = ['slime'];
+const DEFAULT_KINDS = ['chicken'];
 
 export interface CombatUi {
     makeNode(name: string, parent: Node): Node;
@@ -60,13 +60,13 @@ export interface CombatHost {
     onPlayerDeath(): void;
 }
 
-interface Slime {
+interface Chicken {
     node: Node;
     body: Sprite;
     gx: number; gy: number;
     homeGx: number; homeGy: number; // 스폰 위치 — 관심 끊으면 여기로 복귀
     dungeonId: number;              // 소속 던전 — 다른 던전으로는 이동·추적 불가
-    kind: string;                   // 몬스터 종류 (던전별 설정 — 현재 slime만 구현)
+    kind: string;                   // 몬스터 종류 (던전별 설정 — 현재 chicken만 구현)
     hp: number;
     flashT: number;   // 피격 플래시 남은 시간
     dieT: number;     // 0보다 크면 사망 연출 중
@@ -87,8 +87,8 @@ export class CombatSystem {
     private spawnTimer = 0;
     private attackTimer = 0;
 
-    private slimes: Slime[] = [];
-    private slimePool: Slime[] = [];
+    private chickens: Chicken[] = [];
+    private chickenPool: Chicken[] = [];
     private meats: Meat[] = [];
     private meatPool: Meat[] = [];
 
@@ -121,7 +121,7 @@ export class CombatSystem {
 
     /** 활성 개체 존재 여부 — 부트스트랩이 매 프레임 정렬할지 판단용 */
     hasActive(): boolean {
-        return this.slimes.length > 0 || this.meats.length > 0;
+        return this.chickens.length > 0 || this.meats.length > 0;
     }
 
     /** 생산 트리거가 플레이어 등에 쌓인 맨 위 고기 한 개를 가져간다. */
@@ -137,8 +137,8 @@ export class CombatSystem {
     update(dt: number) {
         this.time += dt;
         this.updateSpawn(dt);
-        this.updateSlimes(dt);
-        this.separateSlimes();
+        this.updateChickens(dt);
+        this.separateChickens();
         this.updateAttack(dt);
         this.updateMeat(dt);
         this.updateStack(dt);
@@ -154,7 +154,7 @@ export class CombatSystem {
         if (pid === 0 || this.spawnTimer > 0) return; // 던전 안일 때만
         this.spawnTimer = BAL.wave.intervalS;
 
-        const alive = this.slimes.filter(s => s.alive).length;
+        const alive = this.chickens.filter(s => s.alive).length;
         const batch = Math.min(
             BAL.wave.batchMin + Math.floor(Math.random() * (BAL.wave.batchMax - BAL.wave.batchMin + 1)),
             BAL.wave.maxAlive - alive);
@@ -167,15 +167,15 @@ export class CombatSystem {
             const gy = Math.max(-R, Math.min(R, p.gy + Math.sin(ang) * dist));
             if (this.host.hitsWall(gx, gy)) continue;
             if (this.host.dungeonIdAt(gx, gy) !== pid) continue; // 플레이어와 같은 던전 안에서만
-            this.spawnSlime(gx, gy);
+            this.spawnChicken(gx, gy);
         }
     }
 
-    private spawnSlime(gx: number, gy: number) {
-        let s = this.slimePool.pop();
+    private spawnChicken(gx: number, gy: number) {
+        let s = this.chickenPool.pop();
         if (!s) {
             const ui = this.host.ui;
-            const node = ui.makeNode('Slime', this.host.entities);
+            const node = ui.makeNode('Chicken', this.host.entities);
             const shadow = ui.addSprite('Shadow', node, ui.diamond(), 52, 24, ui.color('#000000', 70));
             shadow.setPosition(0, 0, 0);
             const bodyNode = ui.addSprite('Body', node, ui.square(), 64, 46, ui.color('#3B7A54'));
@@ -184,35 +184,35 @@ export class CombatSystem {
             ui.addSprite('EyeR', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(13, 4, 0);
             s = {
                 node, body: bodyNode.getComponent(Sprite)!, gx, gy,
-                homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'slime',
-                hp: BAL.slime.hp, flashT: 0, dieT: 0, alive: true,
+                homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'chicken',
+                hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true,
             };
         }
         s.gx = gx; s.gy = gy;
         s.homeGx = gx; s.homeGy = gy;
         s.dungeonId = this.host.dungeonIdAt(gx, gy);
-        s.kind = this.pickKind(s.dungeonId); // 던전별 스폰 종류 (현재 slime만 — 종류별 외형/스탯은 추후)
-        s.hp = BAL.slime.hp;
+        s.kind = this.pickKind(s.dungeonId); // 던전별 스폰 종류 (현재 chicken만 — 종류별 외형/스탯은 추후)
+        s.hp = BAL.chicken.hp;
         s.flashT = 0; s.dieT = 0; s.alive = true;
         s.node.active = true;
         s.node.setScale(1, 1, 1);
         s.body.color = this.host.ui.color('#3B7A54');
         s.node.setPosition(isoX(gx, gy), isoY(gx, gy), 0);
-        this.slimes.push(s);
+        this.chickens.push(s);
     }
 
-    // ── 슬라임 이동(추적/복귀)·피격 연출·접촉 데미지·사망 ──
-    private updateSlimes(dt: number) {
+    // ── 몬스터 이동(추적/복귀)·피격 연출·접촉 데미지·사망 ──
+    private updateChickens(dt: number) {
         const p = this.host.playerG();
         const pid = this.host.playerDungeonId(); // 0=던전 밖
         if (this.invulnT > 0) this.invulnT -= dt;
 
-        for (const s of this.slimes) {
+        for (const s of this.chickens) {
             if (s.dieT > 0) {
                 s.dieT += dt;
                 const t = s.dieT / 0.15;
                 s.node.setScale(1 + t * 0.6, 1 - t * 0.5, 1); // 납작하게 팝
-                if (t >= 1) this.releaseSlime(s);
+                if (t >= 1) this.releaseChicken(s);
                 continue;
             }
             if (s.flashT > 0 && (s.flashT -= dt) <= 0) {
@@ -225,9 +225,9 @@ export class CombatSystem {
             const ty = chasing ? p.gy : s.homeGy;
             const dx = tx - s.gx, dy = ty - s.gy;
             const dist = Math.hypot(dx, dy);
-            const stopAt = chasing ? BAL.slime.contactR : 0.05;
+            const stopAt = chasing ? BAL.chicken.contactR : 0.05;
             if (dist > stopAt) {
-                const step = (BAL.slime.speed * dt) / dist;
+                const step = (BAL.chicken.speed * dt) / dist;
                 const nx = s.gx + dx * step, ny = s.gy + dy * step;
                 // 축 분리(벽 따라 미끄러짐) + 마을·통로·다른 던전 진입 금지
                 if (this.canStand(s, nx, s.gy)) s.gx = nx;
@@ -241,14 +241,14 @@ export class CombatSystem {
             // 접촉 데미지 (추적 중일 때만, 무적시간으로 틱 제한)
             if (chasing && this.invulnT <= 0) {
                 const pd = Math.hypot(s.gx - p.gx, s.gy - p.gy);
-                if (pd <= BAL.slime.contactR + 0.15) this.hurtPlayer(BAL.slime.atk);
+                if (pd <= BAL.chicken.contactR + 0.15) this.hurtPlayer(BAL.chicken.atk);
             }
         }
-        this.slimes = this.slimes.filter(s => s.alive);
+        this.chickens = this.chickens.filter(s => s.alive);
     }
 
     /** 몬스터가 (gx,gy)에 설 수 있는가 — 벽/존 규칙 + 소속 던전 안에서만 */
-    private canStand(s: Slime, gx: number, gy: number): boolean {
+    private canStand(s: Chicken, gx: number, gy: number): boolean {
         return !this.host.hitsWall(gx, gy) &&
             monsterPassable(this.host.zoneKindAt(gx, gy)) &&
             this.host.dungeonIdAt(gx, gy) === s.dungeonId;
@@ -283,9 +283,9 @@ export class CombatSystem {
     }
 
     /** 몹끼리 겹침 방지 — 쌍별 밀어내기 (최대 18마리, O(n²) 충분) */
-    private separateSlimes() {
-        const minD = BAL.slime.separationR;
-        const list = this.slimes;
+    private separateChickens() {
+        const minD = BAL.chicken.separationR;
+        const list = this.chickens;
         for (let i = 0; i < list.length; i++) {
             const a = list[i];
             if (a.dieT > 0) continue;
@@ -316,10 +316,10 @@ export class CombatSystem {
         }
     }
 
-    private releaseSlime(s: Slime) {
+    private releaseChicken(s: Chicken) {
         s.alive = false;
         s.node.active = false;
-        this.slimePool.push(s);
+        this.chickenPool.push(s);
     }
 
     // ── 자동 근접공격 (핵앤슬래시 — 범위 내 전원 타격 + 넉백) ──
@@ -327,9 +327,9 @@ export class CombatSystem {
         this.attackTimer -= dt;
         if (this.attackTimer > 0) return;
         const p = this.host.playerG();
-        let nearest: Slime | null = null;
+        let nearest: Chicken | null = null;
         let nearestD = Infinity;
-        for (const s of this.slimes) {
+        for (const s of this.chickens) {
             if (s.dieT > 0) continue;
             const d = Math.hypot(s.gx - p.gx, s.gy - p.gy);
             if (d < nearestD) { nearestD = d; nearest = s; }
@@ -357,7 +357,7 @@ export class CombatSystem {
         }
     }
 
-    private showSlash(p: { gx: number; gy: number }, target: Slime) {
+    private showSlash(p: { gx: number; gy: number }, target: Chicken) {
         if (!this.slashNode) {
             const ui = this.host.ui;
             this.slashNode = ui.addSprite('Slash', this.host.entities, ui.square(), 96, 12, ui.color('#F7EFD8', 230));

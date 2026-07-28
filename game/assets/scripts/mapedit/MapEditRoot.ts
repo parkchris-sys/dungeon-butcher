@@ -59,7 +59,7 @@ export class MapEditRoot extends Component {
     @property({ type: CCBoolean, tooltip: '체크 = 트리거 추가 (triggers 루트) — 타입·크기·연결 ID 설정' })
     addTrigger = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: slime)' })
+    @property({ type: CCBoolean, tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: chicken)' })
     addMonster = false;
 
     @property({ type: CCBoolean, tooltip: '체크 = NPC 추가 (npcs 루트) — img 외형·kind 자유 라벨' })
@@ -107,7 +107,7 @@ export class MapEditRoot extends Component {
         if (this.addRegion) { this.addRegion = false; this.createRegion(); }
         if (this.addObject) { this.addObject = false; this.createObject(); }
         if (this.addTrigger) { this.addTrigger = false; this.createTrigger(); }
-        if (this.addMonster) { this.addMonster = false; this.createUnit('monsters', '몬스터', 'slime'); }
+        if (this.addMonster) { this.addMonster = false; this.createUnit('monsters', '몬스터', 'chicken'); }
         if (this.addNpc) { this.addNpc = false; this.createUnit('npcs', 'NPC', 'customer'); }
         if (this.refreshData) { this.refreshData = false; this.pruneOrphanTiles(); }
         if (this.clearOverrides) { this.clearOverrides = false; this.tileOverridesJson = '{}'; this.refreshTileNodes(); }
@@ -528,7 +528,7 @@ export class MapEditRoot extends Component {
                 if (!n.getComponent(MapUnit)) {
                     const u = n.addComponent(MapUnit);
                     u.kind = rootName === 'spawn' ? 'player'
-                        : rootName === 'monsters' ? 'slime' : 'npc';
+                        : rootName === 'monsters' ? 'chicken' : 'npc';
                 }
             }
         }
