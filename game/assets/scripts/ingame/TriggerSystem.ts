@@ -1,5 +1,5 @@
 import { Color, Node, SpriteFrame } from 'cc';
-import { MapObjectDef, MapTriggerDef, MapUnitDef, TriggerType } from './MapData';
+import { MapObjectDef, MapTriggerDef, MapUnitDef, TriggerType, ResourceKind } from './MapData';
 import { isoX, isoY, TILE_W } from './Projection';
 
 const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
@@ -37,6 +37,10 @@ export interface TriggerHost {
     playerG(): { gx: number; gy: number };
     takePlayerMeat(): boolean;
     addGold(amount: number): void;
+    /** 플레이어가 등에 진 리소스 1개 꺼내기 — 없으면 false (raw는 등짐 고기 스택) */
+    takePlayerResource(kind: ResourceKind): boolean;
+    /** 플레이어에게 리소스 1개 적재 — 한계 초과 등으로 못 받으면 false */
+    givePlayerResource(kind: ResourceKind): boolean;
     /** NPC 스폰 요청 — CustomerSystem이 풀에서 손님 1명 활성화 후 spawnId 부여 */
     spawnCustomer(gx: number, gy: number, img: number): void;
     ui: TriggerUi;
@@ -51,6 +55,11 @@ interface RuntimeTrigger {
     working: boolean;
     customers: TriggerNpc[];
 }
+
+/** 리소스 종류별 표시색 */
+const RES_COLOR: Record<ResourceKind, string> = {
+    raw: '#C0503F', cooked: '#E7A33E', money: '#F0B429',
+};
 
 interface Flight {
     node: Node;
@@ -102,6 +111,7 @@ export class TriggerSystem {
                 case 'checkout': this.updateCheckout(trigger); break;
                 case 'money-pickup': this.updateMoneyPickup(trigger); break;
                 case 'npc-spawn': this.updateNpcSpawn(trigger); break;
+                case 'player-resource': this.updatePlayerResource(trigger); break;
             }
         }
     }
@@ -180,6 +190,57 @@ export class TriggerSystem {
             });
     }
 
+    /**
+     * 플레이어리소스이동 — 플레이어가 트리거 영역에 있을 때 동작이 연결 유무로 갈린다.
+     *  ① 연결 트리거 있음: 플레이어 보유 리소스(resource 종류) 1개를 연결 트리거로 이송해 쌓음
+     *  ② 연결 트리거 없음: 이 트리거에 쌓인 리소스를 플레이어에게 이송(회수)
+     * 한 번에 1개씩 TRANSFER_S 간격으로 — 서 있는 동안 순차 이송.
+     */
+    private updatePlayerResource(t: RuntimeTrigger) {
+        if (t.timer > 0 || !this.containsPlayer(t.def)) return;
+        const kind: ResourceKind = t.def.resource ?? 'raw';
+        const color = RES_COLOR[kind];
+        const linkId = t.def.triggerLinks[0] ?? '';
+        const target = linkId ? this.byId.get(linkId) ?? null : null;
+
+        if (linkId) {
+            // ① 보내기 — 연결 대상이 없으면 경고만 (validateLinks에서 이미 알림)
+            if (!target || !this.host.takePlayerResource(kind)) return;
+            t.timer = TRANSFER_S;
+            const p = this.host.playerNode().position;
+            this.fly(`Res_${kind}`, p.x, p.y + 90, target, color, p.y - 1, () => {
+                this.pushItem(target, this.stackOf(target, kind), `Res_${kind}`, color);
+            });
+        } else {
+            // ② 회수 — 이 트리거에 쌓인 것을 플레이어에게
+            const stack = this.stackOf(t, kind);
+            if (stack.length === 0) return;
+            if (kind === 'money') {
+                // 돈은 등에 지지 않고 골드로 즉시 편입
+                stack.pop()!.destroy();
+                t.timer = TRANSFER_S;
+                const start = this.center(t.def);
+                const p = this.host.playerNode().position;
+                this.flyToPoint('Res_money', start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {
+                    this.host.addGold(1);
+                });
+                return;
+            }
+            if (!this.host.givePlayerResource(kind)) return; // 등짐 가득 — 대기
+            stack.pop()!.destroy();
+            this.reflow(t, stack);
+            t.timer = TRANSFER_S;
+            const start = this.center(t.def);
+            const p = this.host.playerNode().position;
+            this.flyToPoint(`Res_${kind}`, start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {});
+        }
+    }
+
+    /** 트리거의 리소스 종류별 스택 */
+    private stackOf(t: RuntimeTrigger, kind: ResourceKind): Node[] {
+        return kind === 'raw' ? t.raw : kind === 'cooked' ? t.cooked : t.money;
+    }
+
     private updateNpcSpawn(t: RuntimeTrigger) {
         if (t.timer > 0) return;
         t.timer = SPAWN_INTERVAL_S;
@@ -236,6 +297,14 @@ export class TriggerSystem {
                 if (!this.objects.some(object => object.id === objectId)) {
                     console.warn(`[TriggerSystem] '${trigger.def.id}'의 연결 오브젝트 '${objectId}'를 찾을 수 없습니다`);
                 }
+            }
+            // 플레이어리소스이동은 연결 없음도 정상(회수 모드) — 링크가 적혔을 때만 존재 확인
+            if (trigger.def.type === 'player-resource') {
+                const linkId = trigger.def.triggerLinks[0] ?? '';
+                if (linkId && !this.byId.get(linkId)) {
+                    console.warn(`[TriggerSystem] '${trigger.def.id}'의 연결 트리거 '${linkId}'를 찾을 수 없습니다`);
+                }
+                continue;
             }
             const required = expected[trigger.def.type];
             if (!required) continue;

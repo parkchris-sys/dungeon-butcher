@@ -312,6 +312,11 @@ export class IngameBootstrap extends Component {
                 this.showGoldGain(amount); // 상시 카운터 대신 "+N" 팝업 (BIBLE §10-a)
             },
             spawnCustomer: (gx, gy, img) => this.customerSystem?.spawn(gx, gy, img),
+            // 플레이어리소스이동 — 돈은 등에 지지 않으므로 등짐(raw/cooked)만 처리
+            takePlayerResource: (kind) => kind === 'money'
+                ? false : (this.combat?.takeResource(kind) ?? false),
+            givePlayerResource: (kind) => kind === 'money'
+                ? false : (this.combat?.addResource(kind) ?? false),
             ui: {
                 makeNode: (n, p) => this.makeNode(n, p),
                 addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),

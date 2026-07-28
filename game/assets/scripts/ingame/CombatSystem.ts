@@ -97,6 +97,7 @@ export class CombatSystem {
 
     private stackRoot: Node;
     private stackPieces: Node[] = [];
+    private stackKinds: ('raw' | 'cooked')[] = []; // 조각별 종류 — 등짐에 생고기/요리 혼재 가능
     private meatCount = 0;
     private fullLabel: Node | null = null;
     private fullT = 0;
@@ -124,10 +125,11 @@ export class CombatSystem {
         return this.chickens.length > 0 || this.meats.length > 0;
     }
 
-    /** 생산 트리거가 플레이어 등에 쌓인 맨 위 고기 한 개를 가져간다. */
+    /** 생산 트리거가 플레이어 등에 쌓인 맨 위 한 개를 가져간다 (종류 무관 — 레거시 경로). */
     takeTopMeat(): boolean {
         const piece = this.stackPieces.pop();
         if (!piece) return false;
+        this.stackKinds.pop();
         piece.destroy();
         this.meatCount = Math.max(0, this.meatCount - 1);
         this.host.onMeatCount(this.meatCount, BAL.stack.limit);
@@ -278,6 +280,7 @@ export class CombatSystem {
     private clearStack() {
         for (const piece of this.stackPieces) piece.destroy();
         this.stackPieces = [];
+        this.stackKinds = [];
         this.meatCount = 0;
         this.host.onMeatCount(0, BAL.stack.limit);
     }
@@ -408,7 +411,7 @@ export class CombatSystem {
                     0);
                 if (t >= 1) {
                     this.releaseMeat(m);
-                    this.addToStack();
+                    this.addToStack('raw'); // 사냥 드랍은 생고기
                 }
                 continue;
             }
@@ -436,14 +439,48 @@ export class CombatSystem {
     }
 
     // ── 등 뒤 스택 ★ (1~10 개별 조각 + 관성 흔들림) ──
-    private addToStack() {
+    /** 등짐에 리소스 1개 적재 — 한계 초과면 false. kind: 'raw'(생고기)/'cooked'(요리) */
+    addResource(kind: 'raw' | 'cooked'): boolean {
+        if (this.meatCount >= BAL.stack.limit) {
+            this.showFull();
+            return false;
+        }
+        this.addToStack(kind);
+        return true;
+    }
+
+    /** 등짐 맨 위에서 해당 종류 1개 꺼내기 — 없으면 false (위에서부터 탐색) */
+    takeResource(kind: 'raw' | 'cooked'): boolean {
+        for (let i = this.stackPieces.length - 1; i >= 0; i--) {
+            if (this.stackKinds[i] !== kind) continue;
+            this.stackPieces[i].destroy();
+            this.stackPieces.splice(i, 1);
+            this.stackKinds.splice(i, 1);
+            this.meatCount = Math.max(0, this.meatCount - 1);
+            this.host.onMeatCount(this.meatCount, BAL.stack.limit);
+            return true;
+        }
+        return false;
+    }
+
+    /** 등짐에 그 종류가 몇 개 있는지 */
+    countResource(kind: 'raw' | 'cooked'): number {
+        return this.stackKinds.filter(k => k === kind).length;
+    }
+
+    private addToStack(kind: 'raw' | 'cooked' = 'raw') {
         this.meatCount += 1;
         this.host.onMeatCount(this.meatCount, BAL.stack.limit);
         const ui = this.host.ui;
         const i = this.stackPieces.length;
-        const piece = ui.addSprite(`StackMeat_${i}`, this.stackRoot, ui.square(), 38, BAL.stack.pieceH - 2,
-            ui.color(i % 2 === 0 ? '#C0503F' : '#8C3A2E'));
+        // 생고기는 붉은 톤(명암 교차), 요리는 구운 톤 — 등짐만 봐도 뭘 지고 있는지 구분
+        const hex = kind === 'cooked'
+            ? (i % 2 === 0 ? '#E7A33E' : '#C4842B')
+            : (i % 2 === 0 ? '#C0503F' : '#8C3A2E');
+        const piece = ui.addSprite(`Stack_${kind}_${i}`, this.stackRoot, ui.square(), 38, BAL.stack.pieceH - 2,
+            ui.color(hex));
         this.stackPieces.push(piece);
+        this.stackKinds.push(kind);
     }
 
     private updateStack(dt: number) {

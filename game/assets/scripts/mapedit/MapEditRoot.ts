@@ -8,7 +8,9 @@ import { MapTile } from './MapTile';
 import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
-import { MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf } from './MapTrigger';
+import {
+    MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf, resourceKindOf, resourceEnumOf,
+} from './MapTrigger';
 import { ensureFloorFrames, floorFrame, retryFloorFrames } from './TileFrameCache';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
 import {
@@ -878,6 +880,7 @@ export class MapEditRoot extends Component {
             comp.triggerLink1 = t.triggerLinks[0] ?? '';
             comp.objectLink1 = t.objectLinks[0] ?? '';
             comp.npcImg = t.npcImg ?? 0;
+            comp.resource = resourceEnumOf(t.resource);
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -1158,6 +1161,8 @@ export class MapEditRoot extends Component {
                 triggerLinks: t.triggerLink1.trim() ? [t.triggerLink1.trim()] : [],
                 objectLinks: t.objectLink1.trim() ? [t.objectLink1.trim()] : [],
                 npcImg: t.npcImg || undefined,
+                resource: triggerTypeOf(t.triggerType) === 'player-resource'
+                    ? resourceKindOf(t.resource) : undefined,
             });
         }
         for (const t of triggerList) {

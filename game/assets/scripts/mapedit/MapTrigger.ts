@@ -3,7 +3,7 @@ import {
     CCInteger, CCString, Enum,
 } from 'cc';
 import { EDITOR } from 'cc/env';
-import { TriggerType } from '../ingame/MapData';
+import { TriggerType, ResourceKind } from '../ingame/MapData';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 const B = 32;
@@ -17,6 +17,8 @@ export enum MapTriggerKind {
     Checkout = 4,
     MoneyPickup = 5,
     NpcSpawn = 6,
+    /** 플레이어리소스이동 — 연결 트리거 있으면 플레이어 보유분을 보냄, 없으면 쌓인 것을 플레이어가 회수 */
+    PlayerResource = 7,
 }
 
 const TYPE_NAMES: TriggerType[] = [
@@ -27,6 +29,7 @@ const TYPE_NAMES: TriggerType[] = [
     'checkout',
     'money-pickup',
     'npc-spawn',
+    'player-resource',
 ];
 
 const TYPE_COLORS = [
@@ -37,7 +40,24 @@ const TYPE_COLORS = [
     '#5379C8',
     '#9B63C5',
     '#3FBFBF',
+    '#E0559B',
 ];
+
+/** Inspector 드롭다운용 리소스 종류 — 값 순서는 RESOURCE_NAMES와 일치 */
+export enum MapResourceKind {
+    생고기 = 0,
+    요리 = 1,
+    돈 = 2,
+}
+const RESOURCE_NAMES: ResourceKind[] = ['raw', 'cooked', 'money'];
+
+export function resourceKindOf(v: MapResourceKind): ResourceKind {
+    return RESOURCE_NAMES[v] ?? 'raw';
+}
+export function resourceEnumOf(r: ResourceKind | undefined): MapResourceKind {
+    const i = RESOURCE_NAMES.indexOf(r ?? 'raw');
+    return (i < 0 ? 0 : i) as MapResourceKind;
+}
 
 export function triggerTypeOf(kind: MapTriggerKind): TriggerType {
     return TYPE_NAMES[kind] ?? 'ingredient-dropoff';
@@ -67,8 +87,12 @@ export class MapTrigger extends Component {
     @property({ type: CCInteger, tooltip: '점유 타일 수(세로)' })
     tileH = 1;
 
-    @property({ type: CCString, tooltip: '연결 트리거 1번의 triggerId' })
+    @property({ type: CCString, tooltip: '연결 트리거 1번의 triggerId\n'
+        + '플레이어리소스이동: 값이 있으면 → 그 트리거로 보내기 / 비우면 → 플레이어가 회수' })
     triggerLink1 = '';
+
+    @property({ type: Enum(MapResourceKind), tooltip: '플레이어리소스이동 전용: 이송할 리소스 종류 (생고기/요리/돈)' })
+    resource = MapResourceKind.생고기;
 
     @property({ type: CCString, tooltip: '연결 오브젝트 1번의 objectId (선택)' })
     objectLink1 = '';
