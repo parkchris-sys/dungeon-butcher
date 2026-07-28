@@ -325,7 +325,7 @@ export class CombatSystem {
         this.chickenPool.push(s);
     }
 
-    // ── 자동 근접공격 (핵앤슬래시 — 범위 내 전원 타격 + 넉백) ──
+    // ── 자동 근접공격 (단일 타겟 — 제일 가까운 적 하나만 타격 + 넉백, 2026-07-10 결정) ──
     private updateAttack(dt: number) {
         this.attackTimer -= dt;
         if (this.attackTimer > 0) return;
