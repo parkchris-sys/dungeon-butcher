@@ -116,14 +116,15 @@ export class AnimEditRoot extends Component {
 
     // ── 프레임 이미지 캐시 (chars 폴더 스캔) ──
     private ensureFrameCache() {
-        // 아직 못 찾은 이미지가 있으면 주기적으로 재스캔 (새 파일 추가 시 리로드 불필요)
+        // 새 파일 추가 시 리로드 없이 반영되도록 주기적으로 재스캔
         if (this.scanned && (++this.rescanTick % 120 !== 0)) return;
-        if (this.scanned && this.frames.size > 0 && this.rescanTick % 120 !== 0) return;
         this.scanned = true;
         Editor.Message.request('asset-db', 'query-assets', { pattern: `${CHARS_DIR}/**/*` })
             .then((assets: Array<{ name?: string; uuid?: string }>) => {
                 for (const a of assets ?? []) {
-                    const name = String(a.name ?? '');
+                    // ⚠ 에디터 query-assets의 name은 **확장자를 포함**한다 (player_idle_2.png).
+                    //   게임 런타임(loadDir)의 asset name과 달라서, 벗겨내고 매칭해야 한다.
+                    const name = String(a.name ?? '').replace(/\.[^.]+$/, '');
                     if (!a.uuid || a.uuid.includes('@')) continue;
                     if (!/^(.+)_(\d+)$/.test(name)) continue;
                     if (this.frames.has(name)) continue;
