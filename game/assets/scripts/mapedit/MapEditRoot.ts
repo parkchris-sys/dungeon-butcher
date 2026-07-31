@@ -882,6 +882,8 @@ export class MapEditRoot extends Component {
             comp.objectLink1 = t.objectLinks[0] ?? '';
             comp.npcImg = t.npcImg ?? 0;
             comp.resource = resourceEnumOf(t.resource);
+            comp.targetRegionId = t.targetRegionId ?? 0;
+            comp.unlockCost = t.unlockCost ?? 0;
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -1167,6 +1169,9 @@ export class MapEditRoot extends Component {
                 npcImg: t.npcImg || undefined,
                 resource: triggerTypeOf(t.triggerType) === 'player-resource'
                     ? resourceKindOf(t.resource) : undefined,
+                targetRegionId: t.targetRegionId || undefined,
+                // 0(무료 통과)도 의미가 있으므로 게이트면 항상 기록
+                unlockCost: triggerTypeOf(t.triggerType) === 'gate' ? t.unlockCost : undefined,
             });
         }
         for (const t of triggerList) {

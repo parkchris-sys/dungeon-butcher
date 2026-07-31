@@ -43,6 +43,10 @@ export interface TriggerHost {
     givePlayerResource(kind: ResourceKind): boolean;
     /** NPC 스폰 요청 — CustomerSystem이 풀에서 손님 1명 활성화 후 spawnId 부여 */
     spawnCustomer(gx: number, gy: number, img: number): void;
+    /** 현재 보유 골드 — 게이트 해금 비용 판정 */
+    gold(): number;
+    /** 골드 차감 (부족하면 false) */
+    spendGold(amount: number): boolean;
     ui: TriggerUi;
 }
 
@@ -79,6 +83,8 @@ export class TriggerSystem {
     private readonly byId = new Map<string, RuntimeTrigger>();
     private readonly flights: Flight[] = [];
     private readonly npcs: TriggerNpc[];
+    /** 해금된 게이트 ID — 세이브가 더미(§5)라 세션 내에서만 유지 (영구 저장은 세이브 도입 시) */
+    private readonly unlockedGates = new Set<string>();
 
     constructor(
         private readonly host: TriggerHost,
@@ -112,6 +118,7 @@ export class TriggerSystem {
                 case 'money-pickup': this.updateMoneyPickup(trigger); break;
                 case 'npc-spawn': this.updateNpcSpawn(trigger); break;
                 case 'player-resource': this.updatePlayerResource(trigger); break;
+                case 'gate': break; // 게이트는 매 프레임 처리 없음 — 부트스트랩이 조회(lockedGateAt)로 처리
             }
         }
     }
@@ -250,6 +257,37 @@ export class TriggerSystem {
         const cx = Math.round(t.def.gx + (t.def.w - 1) / 2);
         const cy = Math.round(t.def.gy + (t.def.h - 1) / 2);
         this.host.spawnCustomer(cx, cy, t.def.npcImg ?? 0);
+    }
+
+    // ── 구역 해금 게이트 (BIBLE §7-c, 팝업 규격 §10-b) ──
+    /** (gx,gy)를 덮는 **잠긴** 게이트 — 없으면 null. 이동 차단·팝업 표시의 기준 */
+    lockedGateAt(gx: number, gy: number): MapTriggerDef | null {
+        for (const t of this.byId.values()) {
+            if (t.def.type !== 'gate') continue;
+            if (this.unlockedGates.has(t.def.id)) continue;
+            if (this.containsTile(t.def, Math.round(gx), Math.round(gy))) return t.def;
+        }
+        return null;
+    }
+
+    /** 해금 여부 */
+    isGateUnlocked(id: string): boolean {
+        return this.unlockedGates.has(id);
+    }
+
+    /**
+     * 해금 시도 — 비용만큼 골드를 차감하고 개방. 비용 0이면 무료 통과(튜토리얼 게이트).
+     * 골드 부족이면 false (팝업의 버튼은 비활성 상태로 표시됨).
+     */
+    tryUnlockGate(id: string): boolean {
+        const t = this.byId.get(id);
+        if (!t || t.def.type !== 'gate') return false;
+        if (this.unlockedGates.has(id)) return true;
+        const cost = t.def.unlockCost ?? 0;
+        if (cost > 0 && !this.host.spendGold(cost)) return false;
+        this.unlockedGates.add(id);
+        console.log(`[TriggerSystem] 게이트 '${id}' 해금 (비용 ${cost})`);
+        return true;
     }
 
     /** 조건을 만족하는 손님 중 spawnId가 가장 작은(먼저 온) 한 명 — 구매위치 우선순위 규칙 */

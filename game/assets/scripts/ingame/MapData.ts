@@ -70,7 +70,8 @@ export type TriggerType =
     | 'checkout'
     | 'money-pickup'
     | 'npc-spawn'
-    | 'player-resource'; // 플레이어리소스이동 — 연결 있으면 보내기, 없으면 플레이어가 회수
+    | 'player-resource' // 플레이어리소스이동 — 연결 있으면 보내기, 없으면 플레이어가 회수
+    | 'gate';           // 구역해금 게이트 — 골드 지불로 다음 구역 개방 (해금 전 통과 불가)
 
 /** 트리거가 다루는 리소스 종류 — 플레이어리소스이동의 이송 대상 지정 */
 export type ResourceKind = 'raw' | 'cooked' | 'money';
@@ -87,6 +88,9 @@ export interface MapTriggerDef {
     objectLinks: string[];
     npcImg?: number; // npc-spawn 전용: 스폰할 NPC 외형 ID (maps/units, 0=기본)
     resource?: ResourceKind; // player-resource 전용: 이송할 리소스 종류 (기본 raw)
+    // gate 전용
+    targetRegionId?: number; // 목적지 지역 ID — 팝업에 그 지역 이름을 표시 (0=이름 미표시)
+    unlockCost?: number;     // 해금 비용(골드). 0 = 무료 통과(튜토리얼 게이트) — 비용값은 기획 TBD
 }
 
 /** 유닛 — 몬스터/NPC 배치. 타일 1칸 점유, 위치는 타일 중심 */

@@ -19,6 +19,8 @@ export enum MapTriggerKind {
     NpcSpawn = 6,
     /** 플레이어리소스이동 — 연결 트리거 있으면 플레이어 보유분을 보냄, 없으면 쌓인 것을 플레이어가 회수 */
     PlayerResource = 7,
+    /** 구역해금 게이트 — 골드 지불로 다음 구역 개방, 해금 전에는 통과 불가 */
+    Gate = 8,
 }
 
 const TYPE_NAMES: TriggerType[] = [
@@ -30,6 +32,7 @@ const TYPE_NAMES: TriggerType[] = [
     'money-pickup',
     'npc-spawn',
     'player-resource',
+    'gate',
 ];
 
 const TYPE_COLORS = [
@@ -41,6 +44,7 @@ const TYPE_COLORS = [
     '#9B63C5',
     '#3FBFBF',
     '#E0559B',
+    '#C9B037',
 ];
 
 /** Inspector 드롭다운용 리소스 종류 — 값 순서는 RESOURCE_NAMES와 일치 */
@@ -103,6 +107,12 @@ export class MapTrigger extends Component {
 
     @property({ type: CCInteger, tooltip: 'NPC스폰(npc-spawn) 전용: 스폰할 NPC 외형 ID (maps/units, 0=기본)' })
     npcImg = 0;
+
+    @property({ type: CCInteger, tooltip: '게이트 전용: 목적지 지역 ID — 해금 팝업에 그 지역 이름이 표시됩니다 (0=이름 없음)' })
+    targetRegionId = 0;
+
+    @property({ type: CCInteger, tooltip: '게이트 전용: 해금 비용(골드).\n0 = 무료 통과(최초 마을→사냥지대 튜토리얼 게이트)' })
+    unlockCost = 0;
 
     update() {
         if (!EDITOR) return;

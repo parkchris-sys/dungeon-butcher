@@ -6,7 +6,7 @@ import {
 } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY, screenToGrid } from './Projection';
 import {
-    MapData, ZoneDef, ZoneKind, ZoneType, TileDef, DEV_MAP,
+    MapData, ZoneDef, ZoneKind, ZoneType, TileDef, DEV_MAP, MapTriggerDef,
     buildTileGrid, buildDungeonIdGrid, parseMapDataJson, TILE_ATTR_BLOCKED,
 } from './MapData';
 import { TileView } from './TileView';
@@ -55,6 +55,7 @@ export class IngameBootstrap extends Component {
     private tileGrid: TileDef[][] = [];
     private dungeonIds: number[][] = []; // 던전 인스턴스 ID (1부터) — 이어진 던전 덩어리 단위
     private dungeonNames = new Map<number, string>(); // 던전 ID → 지역 이름 (mapdata.regions)
+    private regionNames = new Map<number, string>();  // 지역 ID → 이름 (게이트 팝업 목적지 표시)
     private currentDungeonId = 0; // 배너 재표시용 — 던전 간 직접 이동 감지
     /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
     private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
@@ -210,8 +211,12 @@ export class IngameBootstrap extends Component {
         const R = this.map.groundRadius;
         this.dungeonIds = buildDungeonIdGrid(this.tileGrid, R);
         this.dungeonNames.clear();
+        this.regionNames.clear();
         for (const r of this.map.regions ?? []) {
-            if (r.id > 0) this.dungeonNames.set(r.id, r.name);
+            if (r.id > 0) {
+                this.dungeonNames.set(r.id, r.name);
+                this.regionNames.set(r.id, r.name); // 게이트 팝업의 목적지 이름 (지역 라벨 그대로)
+            }
         }
         this.tileView = new TileView(this.world, this.diamondFrame(), R, (gx, gy) => {
             const row = this.tileGrid[gy + R];
@@ -312,6 +317,12 @@ export class IngameBootstrap extends Component {
                 this.showGoldGain(amount); // 상시 카운터 대신 "+N" 팝업 (BIBLE §10-a)
             },
             spawnCustomer: (gx, gy, img) => this.customerSystem?.spawn(gx, gy, img),
+            gold: () => this.goldCount,
+            spendGold: (amount) => {
+                if (this.goldCount < amount) return false;
+                this.goldCount -= amount;
+                return true;
+            },
             // 플레이어리소스이동 — 돈은 등에 지지 않으므로 등짐(raw/cooked)만 처리
             takePlayerResource: (kind) => kind === 'money'
                 ? false : (this.combat?.takeResource(kind) ?? false),
@@ -410,6 +421,120 @@ export class IngameBootstrap extends Component {
         if (this.hpBarRoot) this.hpBarRoot.active = this.currentZone?.kind === 'dungeon';
     }
 
+    // ── 구역 해금 팝업 (BIBLE §10-b ② 맵 해금 팝업) ──
+    /**
+     * 공통 규칙: **발판(문 앞) 진입 시 자동 열림 · 벗어나면 자동 닫힘 · 닫기 버튼 없음**,
+     * 화면 중앙 + 뒤쪽 딤, 골드 부족 시 해금 버튼 비활성.
+     * 표시: 목적지 지역 이름 · 해금 비용 · 보유 골드(부족하면 빨강). 비용 0이면 "무료 통과" 배지.
+     */
+    private gatePopup: Node | null = null;
+    private gatePopupId = '';
+    private gateCostLabel: Label | null = null;
+    private gateGoldLabel: Label | null = null;
+    private gateButton: Node | null = null;
+    private gateButtonLabel: Label | null = null;
+
+    /** 매 프레임 — 문 앞이면 열고, 벗어나면 닫고, 열려 있으면 골드 표시 갱신 */
+    private updateGatePopup() {
+        const gate = this.gateInFront();
+        if (!gate) {
+            if (this.gatePopup) { this.gatePopup.destroy(); this.gatePopup = null; this.gatePopupId = ''; }
+            return;
+        }
+        if (this.gatePopupId !== gate.id) this.buildGatePopup(gate);
+        this.refreshGatePopup(gate);
+    }
+
+    private buildGatePopup(gate: MapTriggerDef) {
+        this.gatePopup?.destroy();
+        this.gatePopupId = gate.id;
+
+        const dim = this.addSprite('GateDim', this.node, this.squareFrame(), 1080, 1920, this.color('#000000', 170));
+        const dw = dim.addComponent(Widget);
+        dw.isAlignTop = dw.isAlignBottom = dw.isAlignLeft = dw.isAlignRight = true;
+        dw.top = dw.bottom = dw.left = dw.right = 0;
+        this.gatePopup = dim;
+
+        const panel = this.addSprite('Panel', dim, this.squareFrame(), 860, 620, this.color('#221C2C'));
+        panel.setPosition(0, 0, 0);
+
+        const title = this.makeNode('Title', panel);
+        title.setPosition(0, 230, 0);
+        const tl = title.addComponent(Label);
+        tl.string = '다음 구역으로';
+        tl.fontSize = 46;
+        tl.color = this.color('#9A92AA');
+
+        // 목적지 지역 이름 = 맵 에디터의 지역 라벨 그대로
+        const destName = this.regionNames.get(gate.targetRegionId ?? 0) ?? '미지의 구역';
+        const dest = this.makeNode('Dest', panel);
+        dest.setPosition(0, 150, 0);
+        const dl = dest.addComponent(Label);
+        dl.string = destName;
+        dl.fontSize = 68;
+        dl.isBold = true;
+        dl.cacheMode = Label.CacheMode.BITMAP; // 큰 볼드 글리프 겹침 회피 (실기기 확인분)
+        dl.color = this.color('#F7EFD8');
+
+        const cost = gate.unlockCost ?? 0;
+        if (cost === 0) {
+            // 최초 마을→사냥지대: 비용 0 "무료 통과" 배지 — 튜토리얼 역할 (§7-c 결정)
+            const badge = this.addSprite('FreeBadge', panel, this.squareFrame(), 320, 76, this.color('#3BAF6E'));
+            badge.setPosition(0, 30, 0);
+            const bl = this.makeNode('L', badge).addComponent(Label);
+            bl.string = '무료 통과';
+            bl.fontSize = 40;
+            bl.isBold = true;
+            bl.color = this.color('#F7EFD8');
+        } else {
+            const costNode = this.makeNode('Cost', panel);
+            costNode.setPosition(0, 40, 0);
+            this.gateCostLabel = costNode.addComponent(Label);
+            this.gateCostLabel.fontSize = 40;
+            this.gateCostLabel.color = this.color('#F7EFD8');
+
+            const goldNode = this.makeNode('Gold', panel);
+            goldNode.setPosition(0, -20, 0);
+            this.gateGoldLabel = goldNode.addComponent(Label);
+            this.gateGoldLabel.fontSize = 40;
+        }
+
+        // 해금 버튼 (닫기 버튼은 없음 — 조작은 이동만)
+        const btn = this.addSprite('UnlockBtn', panel, this.squareFrame(), 520, 116, this.color('#3A3050'));
+        btn.setPosition(0, -180, 0);
+        this.gateButton = btn;
+        const lb = this.makeNode('L', btn).addComponent(Label);
+        lb.string = cost === 0 ? '들어가기' : '해금하기';
+        lb.fontSize = 48;
+        lb.isBold = true;
+        lb.color = this.color('#F7EFD8');
+        this.gateButtonLabel = lb;
+        btn.on(Node.EventType.TOUCH_END, () => {
+            if (this.triggerSystem?.tryUnlockGate(gate.id)) {
+                this.gatePopup?.destroy();
+                this.gatePopup = null;
+                this.gatePopupId = '';
+                this.showZoneBannerText(`${destName} 개방!`, '#9FE870');
+            }
+        });
+    }
+
+    /** 열려 있는 동안 보유 골드·버튼 활성 상태 갱신 */
+    private refreshGatePopup(gate: MapTriggerDef) {
+        const cost = gate.unlockCost ?? 0;
+        if (cost === 0) return; // 무료 통과 — 갱신할 수치 없음
+        const enough = this.goldCount >= cost;
+        if (this.gateCostLabel) this.gateCostLabel.string = `해금 비용   ${cost}G`;
+        if (this.gateGoldLabel) {
+            this.gateGoldLabel.string = `보유 골드   ${this.goldCount}`;
+            this.gateGoldLabel.color = this.color(enough ? '#F0B429' : '#C0503F'); // 부족하면 빨강
+        }
+        // 골드 부족 시 버튼 비활성 표현
+        const sp = this.gateButton?.getComponent(Sprite);
+        if (sp) sp.color = this.color(enough ? '#3A3050' : '#2A2434');
+        if (this.gateButtonLabel) this.gateButtonLabel.color = this.color(enough ? '#F7EFD8' : '#6C6480');
+    }
+
     /** 골드 획득 "+N" 팝업 — 상시 카운터 대신 순간 연출 (BIBLE §10-a) */
     private showGoldGain(amount: number) {
         const node = this.makeNode('GoldGain', this.entities);
@@ -453,6 +578,15 @@ export class IngameBootstrap extends Component {
         this.bannerLabel.cacheMode = Label.CacheMode.BITMAP;
         this.bannerFade = bn.addComponent(UIOpacity);
         this.bannerFade.opacity = 0;
+    }
+
+    /** 임의 문구 배너 (게이트 개방 알림 등) */
+    private showZoneBannerText(text: string, hex: string) {
+        if (!this.bannerLabel || !this.bannerFade) return;
+        this.bannerLabel.string = text;
+        this.bannerLabel.color = this.color(hex);
+        this.bannerFade.opacity = 255;
+        this.bannerTimer = 1.8;
     }
 
     private showZoneBanner(z: ZoneDef, nameOverride?: string) {
@@ -657,6 +791,7 @@ export class IngameBootstrap extends Component {
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
         this.updateGoldPopups(dt);
+        this.updateGatePopup(); // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
 
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
@@ -712,9 +847,11 @@ export class IngameBootstrap extends Component {
     private tryMove(dgx: number, dgy: number) {
         const R = this.map.groundRadius;
         const nx = math.clamp(this.pgx + dgx, -R, R);
-        if (!this.hitsWall(nx, this.pgy) && !this.hitsSolidObject(nx, this.pgy)) this.pgx = nx;
+        if (!this.hitsWall(nx, this.pgy) && !this.hitsSolidObject(nx, this.pgy)
+            && !this.hitsLockedGate(nx, this.pgy)) this.pgx = nx;
         const ny = math.clamp(this.pgy + dgy, -R, R);
-        if (!this.hitsWall(this.pgx, ny) && !this.hitsSolidObject(this.pgx, ny)) this.pgy = ny;
+        if (!this.hitsWall(this.pgx, ny) && !this.hitsSolidObject(this.pgx, ny)
+            && !this.hitsLockedGate(this.pgx, ny)) this.pgy = ny;
     }
 
     /** 이동 가능 = "존이 칠해진 타일" 위. 타일 없음/zone 없음(0)/attr 이동불가(1) = 차단 */
@@ -723,6 +860,27 @@ export class IngameBootstrap extends Component {
         const row = this.tileGrid[Math.round(gy) + R];
         const t = row ? row[Math.round(gx) + R] : undefined;
         return !t || t.zone === ZoneType.None || t.attr === TILE_ATTR_BLOCKED;
+    }
+
+    /** 잠긴 게이트 타일은 통과 불가 — 해금하면 그대로 지나갈 수 있다 (BIBLE §7-c) */
+    private hitsLockedGate(gx: number, gy: number): boolean {
+        return !!this.triggerSystem?.lockedGateAt(gx, gy);
+    }
+
+    /**
+     * 문 앞에 서 있는지 — 잠긴 게이트에 인접(정방향 1칸)하면 팝업을 연다.
+     * 게이트 타일 자체가 통과 불가(문)라서 그 위에 설 수 없으므로, "문 앞 발판"을
+     * 별도 영역으로 만들지 않고 인접 판정으로 대체했다 (임의 — 규격 §7-c "문 앞 발판" 해석).
+     */
+    private gateInFront(): MapTriggerDef | null {
+        const ts = this.triggerSystem;
+        if (!ts) return null;
+        const gx = Math.round(this.pgx), gy = Math.round(this.pgy);
+        for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+            const g = ts.lockedGateAt(gx + dx, gy + dy);
+            if (g) return g;
+        }
+        return null;
     }
 
     /** 플레이어 전용 오브젝트 점유 판정. walkable=true인 오브젝트는 통과한다. */
