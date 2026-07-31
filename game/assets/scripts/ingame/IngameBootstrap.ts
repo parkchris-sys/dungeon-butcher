@@ -423,14 +423,25 @@ export class IngameBootstrap extends Component {
         if (this.hpBarRoot) this.hpBarRoot.active = this.currentZone?.kind === 'dungeon';
     }
 
-    /**
-     * 팝업이 열려 있는지 — 열려 있으면 이동 입력을 막는다.
-     * ⚠ 막지 않으면 버튼을 누르는 터치가 조이스틱으로도 들어가 플레이어가 밀리고,
-     *   발판/문 앞을 벗어나 팝업이 파괴돼 **버튼의 TOUCH_END가 유실**된다(해금·구매가 안 되는 원인).
-     *   §10-b "뒤쪽 딤 처리"(배경 차단) 취지와도 일치.
-     */
+    /** 팝업이 열려 있는지 */
     private popupOpen(): boolean {
         return !!this.gatePopup || !!this.upPopup;
+    }
+
+    /**
+     * 터치가 팝업 **패널(버튼 영역) 위**인지 — 패널 위 터치만 조이스틱에서 제외한다.
+     * ⚠ 이동을 전면 차단하면 안 된다: 팝업은 닫기 버튼이 없고 **발판/문 앞을 벗어나야 닫히므로**
+     *   전면 차단은 교착 상태가 된다. 반대로 패널을 보호하지 않으면 버튼 터치가 이동으로 새어
+     *   팝업이 파괴되며 TOUCH_END가 유실된다(해금·구매 실패). 그래서 **패널만** 제외.
+     */
+    private popupPanels: Node[] = [];
+    private touchOnPopupPanel(p: Vec2): boolean {
+        for (const panel of this.popupPanels) {
+            if (!panel.isValid || !panel.activeInHierarchy) continue;
+            const ut = panel.getComponent(UITransform);
+            if (ut && ut.getBoundingBoxToWorld().contains(p)) return true;
+        }
+        return false;
     }
 
     /** 강화 보너스 = 레벨 × 레벨당 증가폭 (절대값 방식 — BALANCE §레벨링 원칙) */
@@ -460,7 +471,10 @@ export class IngameBootstrap extends Component {
     private updateUpgradePopup() {
         const pad = this.triggerSystem?.upgradeAt(this.pgx, this.pgy) ?? null;
         if (!pad) {
-            if (this.upPopup) { this.upPopup.destroy(); this.upPopup = null; this.upPopupId = ''; }
+            if (this.upPopup) {
+                this.upPopup.destroy(); this.upPopup = null; this.upPopupId = '';
+                this.popupPanels = [];
+            }
             return;
         }
         if (this.upPopupId !== pad.id) this.buildUpgradePopup(pad);
@@ -488,6 +502,7 @@ export class IngameBootstrap extends Component {
 
         const panel = this.addSprite('Panel', dim, this.squareFrame(), 880, 760, this.color('#221C2C'));
         panel.setPosition(0, 0, 0);
+        this.popupPanels = [panel]; // 이 패널 위 터치는 조이스틱으로 안 잡음
 
         // 카테고리명 + 오브젝트명 (§10-b 와이어프레임)
         const cat = this.makeNode('Cat', panel);
@@ -591,7 +606,10 @@ export class IngameBootstrap extends Component {
     private updateGatePopup() {
         const gate = this.gateInFront();
         if (!gate) {
-            if (this.gatePopup) { this.gatePopup.destroy(); this.gatePopup = null; this.gatePopupId = ''; }
+            if (this.gatePopup) {
+                this.gatePopup.destroy(); this.gatePopup = null; this.gatePopupId = '';
+                this.popupPanels = [];
+            }
             return;
         }
         if (this.gatePopupId !== gate.id) this.buildGatePopup(gate);
@@ -611,6 +629,7 @@ export class IngameBootstrap extends Component {
 
         const panel = this.addSprite('Panel', dim, this.squareFrame(), 860, 620, this.color('#221C2C'));
         panel.setPosition(0, 0, 0);
+        this.popupPanels = [panel]; // 이 패널 위 터치는 조이스틱으로 안 잡음
 
         const title = this.makeNode('Title', panel);
         title.setPosition(0, 230, 0);
@@ -668,6 +687,7 @@ export class IngameBootstrap extends Component {
                 this.gatePopup?.destroy();
                 this.gatePopup = null;
                 this.gatePopupId = '';
+                this.popupPanels = [];
                 this.openGateObjects(gate); // 연결된 문 오브젝트 숨김 (잠김→열림)
                 this.showZoneBannerText(`${destName} 개방!`, '#9FE870');
             }
@@ -873,7 +893,8 @@ export class IngameBootstrap extends Component {
 
     private onTouchStart(e: EventTouch) {
         if (!this.ready || !this.joystick) return;
-        if (this.popupOpen()) return; // 팝업 중에는 조이스틱을 잡지 않음 (버튼 터치 보호)
+        // 팝업 패널(버튼) 위 터치만 조이스틱 제외 — 딤 영역은 이동 가능해야 팝업을 닫을 수 있다
+        if (this.popupOpen() && this.touchOnPopupPanel(e.getUILocation())) return;
         const p = this.uiPos(e);
         if (this.isOnZoomPanel(p)) return; // 줌 버튼 터치는 조이스틱으로 안 잡음
         this.touchOrigin.set(p.x, p.y);
@@ -926,8 +947,6 @@ export class IngameBootstrap extends Component {
             sy = this.touchDir.y;
             inputMag = this.touchMag;
         }
-        // 팝업 중에는 이동 정지 — 버튼 터치가 이동으로 새어 팝업이 닫히는 것 방지
-        if (this.popupOpen()) { sx = 0; sy = 0; }
 
         // 존 진입 배너 페이드 (1초 유지 → 0.8초 페이드)
         if (this.bannerTimer > 0 && this.bannerFade) {
