@@ -449,6 +449,8 @@ export class IngameBootstrap extends Component {
         this.bannerLabel.fontSize = 72;
         this.bannerLabel.lineHeight = 84;
         this.bannerLabel.isBold = true;
+        // 실기기에서 큰 볼드 폰트가 글리프 겹침으로 깨지는 문제 회피 (로비 로고와 동일 증상)
+        this.bannerLabel.cacheMode = Label.CacheMode.BITMAP;
         this.bannerFade = bn.addComponent(UIOpacity);
         this.bannerFade.opacity = 0;
     }
