@@ -1,4 +1,4 @@
-import { Node, Sprite, SpriteFrame, UITransform } from 'cc';
+import { Color, Node, Sprite, SpriteFrame, UITransform } from 'cc';
 import { AnimClipDef, AnimData, AnimFrameDef } from './AnimData';
 
 /**
@@ -47,6 +47,30 @@ export class SpriteAnimator {
     /** 기준 위치·크기 재설정 (외형 교체 등으로 스프라이트 크기가 바뀐 뒤 호출) */
     setBase(x: number, y: number, w: number, h: number) {
         this.baseX = x; this.baseY = y; this.baseW = w; this.baseH = h;
+    }
+
+    /**
+     * 표시 높이 지정 — 클립이 바뀔 때 **첫 프레임의 원본 비율**로 크기를 맞추고 틴트를 흰색으로 되돌린다.
+     * ⚠ 플레이스홀더(박스) 크기·틴트가 남아 있으면 실제 그림이 눌리거나 색이 덮인다.
+     */
+    private fitHeight = 0;
+    private fitWhite: Color | null = null;
+    setFitHeight(h: number, white: Color) {
+        this.fitHeight = h;
+        this.fitWhite = white;
+    }
+
+    private applyFit(firstImg: number) {
+        if (this.fitHeight <= 0) return;
+        const sf = this.frameOf(this.clipKey, firstImg);
+        if (!sf) return;
+        const h = this.fitHeight;
+        const w = h * (sf.rect.width / Math.max(1, sf.rect.height));
+        this.baseW = w; this.baseH = h;
+        this.baseY = h / 2; // 발이 타일 중심에 닿게 (앵커 중앙)
+        this.node.getComponent(UITransform)?.setContentSize(w, h);
+        this.node.setPosition(this.baseX, this.baseY, 0);
+        if (this.fitWhite) this.sprite.color = this.fitWhite;
     }
 
     /**

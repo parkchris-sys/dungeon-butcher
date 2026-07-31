@@ -199,14 +199,17 @@ export class CombatSystem {
             shadow.setPosition(0, 0, 0);
             const bodyNode = ui.addSprite('Body', node, ui.square(), 64, 46, ui.color('#3B7A54'));
             bodyNode.setPosition(0, 24, 0);
-            ui.addSprite('EyeL', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(-13, 4, 0);
-            ui.addSprite('EyeR', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(13, 4, 0);
             const bodySprite = bodyNode.getComponent(Sprite)!;
+            const anim = this.host.makeAnimator(bodySprite, 24, 64, 46);
+            // 눈은 플레이스홀더(박스) 전용 — 실제 그림이 붙으면 그 위에 겹쳐 보이므로 만들지 않는다
+            if (!anim) {
+                ui.addSprite('EyeL', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(-13, 4, 0);
+                ui.addSprite('EyeR', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(13, 4, 0);
+            }
             s = {
                 node, body: bodySprite, gx, gy,
                 homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'chicken',
-                hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true,
-                anim: this.host.makeAnimator(bodySprite, 24, 64, 46),
+                hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true, anim,
             };
         }
         s.gx = gx; s.gy = gy;
@@ -218,9 +221,17 @@ export class CombatSystem {
         s.node.active = true;
         s.node.setScale(1, 1, 1);
         this.host.playMonsterAnim(s.anim, s.kind, 'walk'); // 클립 없으면 내부에서 무시
-        s.body.color = this.host.ui.color('#3B7A54');
+        s.body.color = this.bodyTint(s);
         s.node.setPosition(isoX(gx, gy), isoY(gx, gy), 0);
         this.chickens.push(s);
+    }
+
+    /**
+     * 몬스터 기본 틴트 — 애니메이션(실제 그림)이 붙으면 흰색이어야 한다.
+     * ⚠ 플레이스홀더 박스 색(#3B7A54)이 남으면 그림에 곱해져 초록으로 물든다.
+     */
+    private bodyTint(s: Chicken): Color {
+        return this.host.ui.color(s.anim ? '#FFFFFF' : '#3B7A54');
     }
 
     // ── 몬스터 이동(추적/복귀)·피격 연출·접촉 데미지·사망 ──
@@ -238,7 +249,7 @@ export class CombatSystem {
                 continue;
             }
             if (s.flashT > 0 && (s.flashT -= dt) <= 0) {
-                s.body.color = this.host.ui.color('#3B7A54');
+                s.body.color = this.bodyTint(s);
             }
 
             // 추적 = 플레이어가 "이 몬스터의 던전"에 있을 때만 — 마을·통로·다른 던전이면 복귀

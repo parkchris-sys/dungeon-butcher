@@ -243,6 +243,8 @@ export class IngameBootstrap extends Component {
         if (!this.animData || this.animFrames.size === 0) return null;
         const anim = new SpriteAnimator(body.node, body, (k, n) => this.animFrameOf(k, n));
         anim.setBase(body.node.position.x, baseY, w, h);
+        // 플레이스홀더 박스(64×46 + 초록 틴트)를 물려받지 않게, 그림 원본 비율·흰 틴트로 맞춘다
+        anim.setFitHeight(IngameBootstrap.MONSTER_PX, this.color('#FFFFFF'));
         return anim;
     }
 
@@ -1315,6 +1317,9 @@ export class IngameBootstrap extends Component {
     /** 기본 캐릭터 크기 — C3 아트 레퍼런스 확정 (2026-07-10): 128×128 @ 1080×1920 */
     private static readonly CHAR_PX = 128;
 
+    /** 몬스터 표시 높이 (임의) — 플레이어(128)보다 작아 보이게 */
+    private static readonly MONSTER_PX = 88;
+
     // ── 플레이어(하얀 네모 + 발밑 그림자) ──
     private buildPlayer(parent: Node): Node {
         const c = IngameBootstrap.CHAR_PX;
@@ -1340,6 +1345,8 @@ export class IngameBootstrap extends Component {
             (ev) => { if (ev === 'hit') this.combat?.triggerAttackHit(); });
         const ut = body.getComponent(UITransform);
         this.playerAnim.setBase(0, c / 2, ut ? ut.contentSize.width : c, ut ? ut.contentSize.height : c);
+        // 클립 프레임은 여유 패딩이 붙어 원화와 비율이 다르다 → 클립이 바뀔 때마다 높이 c 기준으로 다시 맞춘다
+        this.playerAnim.setFitHeight(c, this.color('#FFFFFF'));
         return p;
     }
 
