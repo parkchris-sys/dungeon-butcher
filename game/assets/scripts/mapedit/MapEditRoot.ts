@@ -1,6 +1,6 @@
 import {
     _decorator, Component, Node, Sprite, SpriteFrame, UITransform, Color, Layers,
-    Graphics, RenderRoot2D, CCInteger, CCBoolean, CCString, CCObject,
+    Graphics, RenderRoot2D, CCInteger, CCObject,
     JsonAsset, assetManager,
 } from 'cc';
 import { EDITOR } from 'cc/env';
@@ -50,39 +50,39 @@ export class MapEditRoot extends Component {
     @property({ type: CCInteger, tooltip: '맵 한 변 타일 수 (홀수 권장)' })
     mapTiles = 49;
 
-    @property({ type: CCBoolean, tooltip: '배치 기준 격자 줄 표시 on/off (항상 최상위에 그려짐)' })
+    @property({ tooltip: '배치 기준 격자 줄 표시 on/off (항상 최상위에 그려짐)' })
     showGrid = true;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 타일 편집 구역 추가 (8×8)' })
+    @property({ tooltip: '체크 = 타일 편집 구역 추가 (8×8)' })
     addRegion = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 오브젝트 추가 (objects 루트) — img 외형·kind 종류·tileW/H 타일 단위 크기' })
+    @property({ tooltip: '체크 = 오브젝트 추가 (objects 루트) — img 외형·kind 종류·tileW/H 타일 단위 크기' })
     addObject = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 트리거 추가 (triggers 루트) — 타입·크기·연결 ID 설정' })
+    @property({ tooltip: '체크 = 트리거 추가 (triggers 루트) — 타입·크기·연결 ID 설정' })
     addTrigger = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: chicken)' })
+    @property({ tooltip: '체크 = 몬스터 추가 (monsters 루트) — kind가 그 던전의 스폰 종류가 됨 (예: chicken)' })
     addMonster = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = NPC 추가 (npcs 루트) — img 외형·kind 자유 라벨' })
+    @property({ tooltip: '체크 = NPC 추가 (npcs 루트) — img 외형·kind 자유 라벨' })
     addNpc = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = resources/maps/mapdata.json 내보내기' })
+    @property({ tooltip: '체크 = resources/maps/mapdata.json 내보내기' })
     exportJson = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = mapdata.json을 에디터로 불러오기 ⚠️타일·스폰·배치물을 파일 내용으로 덮어씀 (구역 마커는 유지)' })
+    @property({ tooltip: '체크 = mapdata.json을 에디터로 불러오기 ⚠️타일·스폰·배치물을 파일 내용으로 덮어씀 (구역 마커는 유지)' })
     importJson = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 새로고침: 남아있는 구역 노드 기준으로 타일 데이터 정리\n'
+    @property({ tooltip: '체크 = 새로고침: 남아있는 구역 노드 기준으로 타일 데이터 정리\n'
         + '(삭제된 구역의 잔상 타일 제거 — 구역 사각형 밖 타일 삭제)' })
     refreshData = false;
 
-    @property({ type: CCBoolean, tooltip: '체크 = 타일 수정분 전체 초기화 (존 기본값으로)' })
+    @property({ tooltip: '체크 = 타일 수정분 전체 초기화 (존 기본값으로)' })
     clearOverrides = false;
 
     /** 타일 변경분 저장소 — "gx,gy": [img, attr] (존 기본값과 다른 것만) */
-    @property({ type: CCString, visible: false })
+    @property({ visible: false })
     tileOverridesJson = '{}';
 
     private activeRegion: Node | null = null;

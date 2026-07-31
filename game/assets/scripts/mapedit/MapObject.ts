@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCFloat, CCString, CCBoolean, CCObject } from 'cc';
+import { _decorator, Component, Node, Sprite, UITransform, Color, Layers, CCInteger, CCObject } from 'cc';
 import { EDITOR } from 'cc/env';
 import { objFrame, ensureObjFrames, retryObjFrames } from './TileFrameCache';
 import { TileRegion } from './TileRegion';
@@ -19,13 +19,13 @@ const ISO_K = 1 / (2 * Math.SQRT2); // 게임 px → 에디터 _img 크기 (타�
 @ccclass('MapObject')
 @executeInEditMode
 export class MapObject extends Component {
-    @property({ type: CCString, tooltip: '트리거가 연결할 때 사용하는 오브젝트 고유 ID' })
+    @property({ tooltip: '트리거가 연결할 때 사용하는 오브젝트 고유 ID' })
     objectId = '';
 
     @property({ type: CCInteger, tooltip: '외형 — resources/maps/objs의 {ID}_{이름}.png와 매칭 (0=실루엣)' })
     img = 0;
 
-    @property({ type: CCString, tooltip: '종류 라벨 (자유 — 예: crate, tree, meat_rack)' })
+    @property({ tooltip: '종류 라벨 (자유 — 예: crate, tree, meat_rack)' })
     kind = 'obj';
 
     @property({ type: CCInteger, tooltip: '차지하는 타일 수 (가로)' })
@@ -34,17 +34,17 @@ export class MapObject extends Component {
     @property({ type: CCInteger, tooltip: '차지하는 타일 수 (세로)' })
     tileH = 1;
 
-    @property({ type: CCBoolean, tooltip: '체크하면 플레이어가 오브젝트 점유 타일로 이동할 수 있습니다.' })
+    @property({ tooltip: '체크하면 플레이어가 오브젝트 점유 타일로 이동할 수 있습니다.' })
     walkable = false;
 
-    @property({ type: CCBoolean, tooltip: '체크하면 바닥에 깔린 것으로 취급 — 항상 캐릭터보다 먼저(뒤에) 그려져 바닥에 붙은 효과 (카펫·자국 등)' })
+    @property({ tooltip: '체크하면 바닥에 깔린 것으로 취급 — 항상 캐릭터보다 먼저(뒤에) 그려져 바닥에 붙은 효과 (카펫·자국 등)' })
     floorDecal = false;
 
     @property({ type: CCInteger, tooltip: '종속 리전 ID — 값을 넣으면 이 오브젝트가 해당 리전의 objects 자식으로 편입되어\n'
         + '리전과 함께 움직입니다 (0=전역, 어느 리전에도 종속되지 않음)' })
     regionId = 0;
 
-    @property({ type: CCFloat, tooltip: '외형 이미지 배율 (기본 1) — 타일 크기(tileW/H)와 무관하게 이미지 크기를 조절' })
+    @property({ tooltip: '외형 이미지 배율 (기본 1) — 타일 크기(tileW/H)와 무관하게 이미지 크기를 조절' })
     imgScale = 1;
 
     @property({ type: CCInteger, tooltip: '외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준' })

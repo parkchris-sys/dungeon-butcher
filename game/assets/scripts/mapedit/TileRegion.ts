@@ -1,4 +1,4 @@
-import { _decorator, Component, CCBoolean, CCInteger, CCFloat } from 'cc';
+import { _decorator, Component, CCInteger } from 'cc';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
@@ -11,7 +11,7 @@ const { ccclass, property, executeInEditMode } = _decorator;
 @ccclass('TileRegion')
 @executeInEditMode
 export class TileRegion extends Component {
-    @property({ type: CCBoolean, tooltip: '체크 = 이 구역의 타일을 펼쳐서 편집 (한 번에 한 구역만)' })
+    @property({ tooltip: '체크 = 이 구역의 타일을 펼쳐서 편집 (한 번에 한 구역만)' })
     editTiles = false;
 
     @property({
@@ -26,7 +26,7 @@ export class TileRegion extends Component {
         + '타일마다 이미지를 지정하는 대신, 이 구역 전체를 덮는 큰 바닥 그림 1장을 지정합니다.' })
     floorImg = 0;
 
-    @property({ type: CCFloat, tooltip: '바닥 이미지 배율 (기본 1 — 원본 픽셀 크기 기준). 크기를 키우거나 줄입니다.' })
+    @property({ tooltip: '바닥 이미지 배율 (기본 1 — 원본 픽셀 크기 기준). 크기를 키우거나 줄입니다.' })
     floorScale = 1;
 
     @property({ type: CCInteger, tooltip: '바닥 이미지 X offset(px) — 구역 중심 기준으로 좌우 미세 조정' })

@@ -1,6 +1,6 @@
 import {
     _decorator, Component, Sprite, UITransform, Color,
-    CCInteger, CCString, Enum,
+    CCInteger, Enum,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import { TriggerType, ResourceKind, UpgradeKind } from '../ingame/MapData';
@@ -99,7 +99,7 @@ export function triggerKindOf(type: TriggerType): MapTriggerKind {
 @ccclass('MapTrigger')
 @executeInEditMode
 export class MapTrigger extends Component {
-    @property({ type: CCString, tooltip: '트리거 고유 ID. 다른 트리거의 연결 대상에 이 값을 입력합니다.' })
+    @property({ tooltip: '트리거 고유 ID. 다른 트리거의 연결 대상에 이 값을 입력합니다.' })
     triggerId = '';
 
     @property({ type: Enum(MapTriggerKind), tooltip: '트리거 처리 타입' })
@@ -111,18 +111,18 @@ export class MapTrigger extends Component {
     @property({ type: CCInteger, tooltip: '점유 타일 수(세로)' })
     tileH = 1;
 
-    @property({ type: CCString, tooltip: '연결 트리거 1번의 triggerId\n'
+    @property({ tooltip: '연결 트리거 1번의 triggerId\n'
         + '플레이어리소스이동: 값이 있으면 → 그 트리거로 보내기 / 비우면 → 플레이어가 회수' })
     triggerLink1 = '';
 
-    @property({ type: CCString, tooltip: '연결 트리거 2번의 triggerId (선택)\n'
+    @property({ tooltip: '연결 트리거 2번의 triggerId (선택)\n'
         + '정산대: 회수한 돈을 이 트리거로 이송 (비우면 자기 자리에 쌓임)' })
     triggerLink2 = '';
 
     @property({ type: Enum(MapResourceKind), tooltip: '플레이어리소스이동 전용: 이송할 리소스 종류 (생고기/요리/돈)' })
     resource = MapResourceKind.생고기;
 
-    @property({ type: CCString, tooltip: '연결 오브젝트 1번의 objectId (선택)' })
+    @property({ tooltip: '연결 오브젝트 1번의 objectId (선택)' })
     objectLink1 = '';
 
     @property({ type: CCInteger, tooltip: 'NPC스폰(npc-spawn) 전용: 스폰할 NPC 외형 ID (maps/units, 0=기본)' })
