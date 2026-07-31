@@ -319,6 +319,13 @@ export class AnimEditRoot extends Component {
                 frames,
             };
         }
+        // ⚠ 빈 상태 내보내기 방지 — 클립이 하나도 없으면 덮어쓰지 않는다
+        // (실수로 눌러 기존 animdata.json이 통째로 날아가는 사고 방지)
+        if (Object.keys(clips).length === 0) {
+            console.warn('[AnimEditRoot] 내보낼 클립이 없어 취소했습니다 — 기존 animdata.json을 보존합니다.'
+                + ' (먼저 importJson으로 불러오거나 addClip으로 클립을 만드세요)');
+            return;
+        }
         Editor.Message.request('asset-db', 'create-asset', ANIM_JSON, JSON.stringify({ clips }), { overwrite: true })
             .then(() => console.log(`[AnimEditRoot] 내보내기 완료 → ${ANIM_JSON} (클립 ${Object.keys(clips).length}개, 프레임 ${frameTotal}장)`))
             .catch((e: unknown) => console.warn('[AnimEditRoot] 내보내기 실패', e));
