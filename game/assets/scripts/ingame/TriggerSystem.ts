@@ -122,6 +122,7 @@ export class TriggerSystem {
             });
         }
         this.validateLinks();
+        this.validateGates();
     }
 
     update(dt: number) {
@@ -387,6 +388,26 @@ export class TriggerSystem {
         this.flyToPoint('MoneyPickup', start.x, start.y + 22, p.x, p.y + 70, '#F0B429', start.y - 1, () => {
             this.host.addGold(1);
         });
+    }
+
+    /**
+     * 게이트 설정 점검 — 게이트 근처에 **통과 불가 오브젝트(문)가 있는데 연결되지 않은** 경우 경고.
+     * 연결이 없으면 해금해도 그 문이 계속 길을 막아 "게이트가 안 열린다"로 보인다.
+     */
+    private validateGates() {
+        // 게이트 영역을 1타일 확장한 범위와 오브젝트 영역이 겹치는지 (문은 게이트 위/바로 옆에 있음)
+        const touches = (o: MapObjectDef, def: MapTriggerDef) =>
+            o.gx <= def.gx + def.w && o.gx + o.w - 1 >= def.gx - 1 &&
+            o.gy <= def.gy + def.h && o.gy + o.h - 1 >= def.gy - 1;
+        for (const t of this.byId.values()) {
+            if (t.def.type !== 'gate') continue;
+            if ((t.def.objectLinks ?? []).length > 0) continue;
+            const blockers = this.objects.filter(o => !o.walkable && touches(o, t.def));
+            for (const b of blockers) {
+                console.warn(`[TriggerSystem] 게이트 '${t.def.id}' 옆의 통과 불가 오브젝트 '${b.id ?? b.kind}'가 `
+                    + `연결되지 않았습니다 — 해금해도 길이 막힙니다. 에디터에서 게이트의 objectLink1에 '${b.id ?? ''}'를 넣으세요`);
+            }
+        }
     }
 
     private validateLinks() {
