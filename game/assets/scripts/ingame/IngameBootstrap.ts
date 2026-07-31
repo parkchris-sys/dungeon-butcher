@@ -164,6 +164,7 @@ export class IngameBootstrap extends Component {
     private animData: AnimData | null = null;
     private animFrames = new Map<string, SpriteFrame>();
     private playerAnim: SpriteAnimator | null = null;
+    private playerAttackFacing: 'left' | 'right' = 'right'; // 공격 시작 시 방향 고정
     /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
     private floorSprites: { node: Node; x: number; y: number; hw: number; hh: number }[] = [];
 
@@ -326,11 +327,18 @@ export class IngameBootstrap extends Component {
             groundR: () => this.map.groundRadius,
             attackPower: () => 1 + this.upgradeBonus('attack'),
             carryLimit: () => 10 + this.upgradeBonus('carry'),
-            // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다
-            playAttackAnim: () => this.playerAnim?.play(this.animData, 'player_attack', true) ?? false,
+            // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다 (방향별 클립 지원)
+            playAttackAnim: () => {
+                this.playerAttackFacing = this.facing; // 공격 중 방향 고정
+                return this.playDirectional(this.playerAnim, 'player', 'attack', this.facing, true) !== '';
+            },
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
-            updateAnim: (anim, dt) => { anim?.update(dt, this.animData); },
+            updateAnim: (anim, dt, faceLeft) => {
+                // 방향별 클립이 있으면 그걸 쓰고, 없으면 좌우 반전 (플레이어와 동일 규칙)
+                if (anim && faceLeft !== undefined) anim.setMirror(faceLeft);
+                anim?.update(dt, this.animData);
+            },
             ui: {
                 makeNode: (n, p) => this.makeNode(n, p),
                 addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
@@ -1007,9 +1015,13 @@ export class IngameBootstrap extends Component {
         if (sx !== 0 || sy !== 0) {
             // 좌/우 바라보기 — 수평 입력 방향으로 스프라이트 전환 (수직 이동 시 유지)
             const face: 'left' | 'right' | null = sx > 0.01 ? 'right' : sx < -0.01 ? 'left' : null;
-            if (face && face !== this.facing && this.playerFrames[face] && this.playerSprite) {
+            if (face && face !== this.facing) {
                 this.facing = face;
-                this.playerSprite.spriteFrame = this.playerFrames[face]!;
+                // 애니메이션이 돌고 있으면 방향은 클립·반전이 처리한다 (정적 교체는 덮어쓰기 충돌)
+                const animating = !!this.playerAnim?.current;
+                if (!animating && this.playerFrames[face] && this.playerSprite) {
+                    this.playerSprite.spriteFrame = this.playerFrames[face]!;
+                }
             }
 
             const len = Math.hypot(sx, sy);
@@ -1332,14 +1344,35 @@ export class IngameBootstrap extends Component {
     }
 
     /**
+     * 방향별 클립 재생 — **아트 물량을 데이터로 선택**할 수 있게 두 방식을 모두 지원한다:
+     *  ① `{kind}_{state}_{left|right}` 클립이 있으면 그걸 그대로 (양방향을 따로 그린 경우)
+     *  ② 없으면 `{kind}_{state}` + **좌우 반전** (한쪽만 그린 경우 — 물량 절반)
+     * 반환: 실제로 재생 중인 클립 키 ('' = 클립 없음 → 정적 이미지 유지)
+     */
+    private playDirectional(anim: SpriteAnimator | null, kind: string, state: string,
+        facing: 'left' | 'right', restart = false): string {
+        if (!anim || !this.animData) return '';
+        const dirKey = `${kind}_${state}_${facing}`;
+        if (this.animData.clips[dirKey]) {
+            anim.setMirror(false);
+            return anim.play(this.animData, dirKey, restart) ? dirKey : '';
+        }
+        const key = animKey(kind, state);
+        anim.setMirror(facing === 'left'); // 한쪽 그림을 뒤집어 사용
+        return anim.play(this.animData, key, restart) ? key : '';
+    }
+
+    /**
      * 플레이어 애니메이션 상태 전환 — 이동 여부로 walk/idle, 공격 중엔 attack 유지.
      * attack 클립은 loop=false·next=player_idle로 두면 끝나고 자동 복귀한다.
      */
     private updatePlayerAnim(dt: number, moving: boolean) {
         const anim = this.playerAnim;
         if (!anim || !this.animData) return;
-        const attacking = anim.current === 'player_attack' && !anim.done;
-        if (!attacking) anim.play(this.animData, moving ? 'player_walk' : 'player_idle');
+        // 공격 중에는 방향만 갱신하고 클립은 유지 (attack 종료 시 next로 복귀)
+        const attacking = anim.current.startsWith('player_attack') && !anim.done;
+        if (attacking) anim.setMirror(this.playerAttackFacing === 'left');
+        else this.playDirectional(anim, 'player', moving ? 'walk' : 'idle', this.facing);
         anim.update(dt, this.animData);
     }
 

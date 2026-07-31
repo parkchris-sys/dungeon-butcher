@@ -49,6 +49,17 @@ export class SpriteAnimator {
         this.baseX = x; this.baseY = y; this.baseW = w; this.baseH = h;
     }
 
+    /**
+     * 좌우 반전 — 방향별 클립이 없을 때 한쪽 그림을 뒤집어 반대 방향으로 쓴다 (아트 물량 절반).
+     * 스케일 기교는 contentSize로 처리하므로 노드 scale과 충돌하지 않는다.
+     */
+    private mirrored = false;
+    setMirror(m: boolean) {
+        if (this.mirrored === m) return;
+        this.mirrored = m;
+        this.node.setScale(m ? -1 : 1, 1, 1);
+    }
+
     /** 현재 재생 중인 클립 키 ('' = 없음) */
     get current(): string { return this.clipKey; }
     /** 비반복 클립이 끝났는지 */

@@ -64,8 +64,8 @@ export interface CombatHost {
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
     playMonsterAnim(anim: SpriteAnimator | null, kind: string, state: string): void;
-    /** 애니메이터 프레임 진행 */
-    updateAnim(anim: SpriteAnimator | null, dt: number): void;
+    /** 애니메이터 프레임 진행 + 좌우 반전(화면 왼쪽으로 이동 중이면 true) */
+    updateAnim(anim: SpriteAnimator | null, dt: number, faceLeft?: boolean): void;
     ui: CombatUi;
     onMeatCount(count: number, limit: number): void;
     onHp(hp: number, max: number): void;
@@ -259,7 +259,8 @@ export class CombatSystem {
                 s.node.setScale(1 + bounce * 0.06, 1 - bounce * 0.08, 1);
             }
             s.node.setPosition(isoX(s.gx, s.gy), isoY(s.gx, s.gy), 0);
-            this.host.updateAnim(s.anim, dt);
+            // 화면 수평 이동 방향 = (dgx - dgy) 부호 (아이소: screenX = (gx-gy)*64)
+            this.host.updateAnim(s.anim, dt, (dx - dy) < 0);
 
             // 접촉 데미지 (추적 중일 때만, 무적시간으로 틱 제한)
             if (chasing && this.invulnT <= 0) {
