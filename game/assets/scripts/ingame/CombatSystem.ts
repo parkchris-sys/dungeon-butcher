@@ -1,5 +1,6 @@
 import { Node, Sprite, SpriteFrame, Color, Label } from 'cc';
 import { isoX, isoY } from './Projection';
+import { SpriteAnimator } from './SpriteAnimator';
 
 /**
  * 던전 코어: 웨이브 스폰 → 자동 근접공격 → 고기 드랍/픽업 → 등 뒤 스택★ (PHASE1 §3).
@@ -12,7 +13,7 @@ const BAL = {
     wave: { maxAlive: 22, batchMin: 3, batchMax: 4, intervalS: 1.6, rMin: 8, rMax: 11 },
     chicken: { hp: 2, speed: 1.4, contactR: 0.55, atk: 1, separationR: 0.9 }, // 닭 (구 슬라임) — separationR: 몹끼리 최소 간격(타일, 임의)
     player: { maxHp: 10, invulnS: 0.5, hubRegen: 2 },      // invuln: 캐릭터 기준 전체 공유(확정), 수치는 v0.3. hubRegen: 마을 HP/s
-    attack: { intervalS: 0.45, range: 1.8, knockback: 0.7 },
+    attack: { intervalS: 0.45, range: 1.8, knockback: 0.7, hitTimeoutS: 0.3 }, // hitTimeout: 애니 'hit' 이벤트 미도달 시 타격 보정 (임의)
     meat: { dropChance: 0.6, dropMax: 2, pickupR: 0.9, flyS: 0.18, maxGround: 40 },
     stack: { limit: 10, pieceH: 15, swayAmp: 4, swaySpeed: 3 },
 };
@@ -57,6 +58,14 @@ export interface CombatHost {
     attackPower(): number;
     /** 강화 반영 운반 한계 (기본 10 + 강화) */
     carryLimit(): number;
+    /** 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false) */
+    playAttackAnim(): boolean;
+    /** 몬스터용 애니메이터 생성 (클립·프레임이 없으면 null → 기존 정적 표시 유지) */
+    makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
+    /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
+    playMonsterAnim(anim: SpriteAnimator | null, kind: string, state: string): void;
+    /** 애니메이터 프레임 진행 */
+    updateAnim(anim: SpriteAnimator | null, dt: number): void;
     ui: CombatUi;
     onMeatCount(count: number, limit: number): void;
     onHp(hp: number, max: number): void;
@@ -75,6 +84,7 @@ interface Chicken {
     flashT: number;   // 피격 플래시 남은 시간
     dieT: number;     // 0보다 크면 사망 연출 중
     alive: boolean;
+    anim: SpriteAnimator | null; // 종류별 클립({kind}_walk 등) — 아트 없으면 null 유지
 }
 
 interface Meat {
@@ -108,6 +118,8 @@ export class CombatSystem {
 
     private hp = BAL.player.maxHp;
     private invulnT = 0;
+    /** 애니메이션 'hit' 프레임까지 지연된 타격 (클립이 있을 때만) */
+    private pendingHit: { target: Chicken; timeout: number } | null = null;
 
     constructor(host: CombatHost) {
         this.host = host;
@@ -146,6 +158,7 @@ export class CombatSystem {
         this.updateChickens(dt);
         this.separateChickens();
         this.updateAttack(dt);
+        this.updatePendingHit(dt);
         this.updateMeat(dt);
         this.updateStack(dt);
         this.updateRegen(dt);
@@ -188,10 +201,12 @@ export class CombatSystem {
             bodyNode.setPosition(0, 24, 0);
             ui.addSprite('EyeL', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(-13, 4, 0);
             ui.addSprite('EyeR', bodyNode, ui.square(), 8, 11, ui.color('#F7EFD8')).setPosition(13, 4, 0);
+            const bodySprite = bodyNode.getComponent(Sprite)!;
             s = {
-                node, body: bodyNode.getComponent(Sprite)!, gx, gy,
+                node, body: bodySprite, gx, gy,
                 homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'chicken',
                 hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true,
+                anim: this.host.makeAnimator(bodySprite, 24, 64, 46),
             };
         }
         s.gx = gx; s.gy = gy;
@@ -202,6 +217,7 @@ export class CombatSystem {
         s.flashT = 0; s.dieT = 0; s.alive = true;
         s.node.active = true;
         s.node.setScale(1, 1, 1);
+        this.host.playMonsterAnim(s.anim, s.kind, 'walk'); // 클립 없으면 내부에서 무시
         s.body.color = this.host.ui.color('#3B7A54');
         s.node.setPosition(isoX(gx, gy), isoY(gx, gy), 0);
         this.chickens.push(s);
@@ -243,6 +259,7 @@ export class CombatSystem {
                 s.node.setScale(1 + bounce * 0.06, 1 - bounce * 0.08, 1);
             }
             s.node.setPosition(isoX(s.gx, s.gy), isoY(s.gx, s.gy), 0);
+            this.host.updateAnim(s.anim, dt);
 
             // 접촉 데미지 (추적 중일 때만, 무적시간으로 틱 제한)
             if (chasing && this.invulnT <= 0) {
@@ -344,10 +361,38 @@ export class CombatSystem {
         if (!nearest || nearestD > BAL.attack.range) return;
 
         this.attackTimer = BAL.attack.intervalS;
-        this.showSlash(p, nearest);
 
-        // 단일 타겟 — 제일 가까운 적 하나만 타격 (2026-07-10 결정)
-        const s = nearest;
+        // 공격 애니메이션이 있으면 **타격을 'hit' 프레임까지 지연**한다 (애니메이션 타이밍과 손맛 일치).
+        // 클립이 없으면(아트 미반입) 즉시 타격 — 기존 동작 유지.
+        if (this.host.playAttackAnim()) {
+            this.pendingHit = { target: nearest, timeout: BAL.attack.hitTimeoutS };
+        } else {
+            this.applyHit(nearest);
+        }
+    }
+
+    /** 애니메이션 'hit' 이벤트 — 이 시점에 실제 데미지가 들어간다 (부트스트랩이 호출) */
+    triggerAttackHit() {
+        if (!this.pendingHit) return;
+        const t = this.pendingHit.target;
+        this.pendingHit = null;
+        this.applyHit(t);
+    }
+
+    /** 지연 타격 안전장치 — 'hit' 이벤트가 없는 클립이어도 타격이 유실되지 않게 */
+    private updatePendingHit(dt: number) {
+        if (!this.pendingHit) return;
+        if ((this.pendingHit.timeout -= dt) > 0) return;
+        const t = this.pendingHit.target;
+        this.pendingHit = null;
+        this.applyHit(t);
+    }
+
+    /** 실제 타격 — 데미지·플래시·넉백·사망 처리 (즉시/지연 공용) */
+    private applyHit(s: Chicken) {
+        if (!s.alive || s.dieT > 0) return; // 지연 중 이미 죽었으면 무효
+        const p = this.host.playerG();
+        this.showSlash(p, s);
         const dx = s.gx - p.gx, dy = s.gy - p.gy;
         const d = Math.max(Math.hypot(dx, dy), 0.001);
         s.hp -= this.host.attackPower(); // 강화 반영 공격력

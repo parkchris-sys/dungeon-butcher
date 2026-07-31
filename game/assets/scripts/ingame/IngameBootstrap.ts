@@ -14,6 +14,8 @@ import { parseTiledMap } from './TiledLoader';
 import { CombatSystem } from './CombatSystem';
 import { TriggerNpc, TriggerSystem, UPGRADE_SPEC } from './TriggerSystem';
 import { CustomerSystem, NpcTemplate } from './CustomerSystem';
+import { AnimData, animKey, parseAnimDataJson } from './AnimData';
+import { SpriteAnimator } from './SpriteAnimator';
 
 const { ccclass, property } = _decorator;
 
@@ -154,6 +156,14 @@ export class IngameBootstrap extends Component {
     private moodFrames = new Map<number, SpriteFrame>(); // 기분 이모티콘 (0 화남..3 행복)
     /** 던전 ID → 스폰 몬스터 종류 (맵 에디터 몬스터 배치에서 파생) */
     private spawnKinds = new Map<number, string[]>();
+    /**
+     * 애니메이션 — 클립 정의(animdata.json) + 프레임 이미지.
+     * 프레임 키는 `{클립키}_{n}` (파일명 규칙 `chars/{종류}_{상태}_{n}.png`와 동일).
+     * 아트 미반입이면 둘 다 비어 있고, 각 개체는 기존 정적 이미지를 그대로 쓴다(폴백).
+     */
+    private animData: AnimData | null = null;
+    private animFrames = new Map<string, SpriteFrame>();
+    private playerAnim: SpriteAnimator | null = null;
     /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
     private floorSprites: { node: Node; x: number; y: number; hw: number; hh: number }[] = [];
 
@@ -163,7 +173,7 @@ export class IngameBootstrap extends Component {
      * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
      */
     private loadZoneTextures(done: () => void) {
-        let pending = 5; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 스캔
+        let pending = 7; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 + 애니메이션(클립·프레임)
 
         const playerJobs: [string, (f: SpriteFrame) => void][] = [
             ['chars/player_left',  f => { this.playerFrames.left = f; }],
@@ -198,6 +208,41 @@ export class IngameBootstrap extends Component {
         scanDir('maps/objs', this.objFrames);
         scanDir('maps/units', this.unitFrames);
         scanDir('maps/moods', this.moodFrames);
+
+        // 애니메이션 클립 정의 (편집 씬이 내보낸 JSON) — 없으면 정적 이미지 폴백
+        resources.load('anim/animdata', JsonAsset, (err, asset) => {
+            if (!err && asset) this.animData = parseAnimDataJson(asset.json);
+            if (--pending === 0) done();
+        });
+        // 애니메이션 프레임 — `chars/{종류}_{상태}_{n}.png` (ASSET_LIST 규약)
+        resources.loadDir('chars', SpriteFrame, (err, frames) => {
+            if (!err && frames) {
+                for (const f of frames) {
+                    // 파일명 끝의 `_{n}`을 프레임 번호로 — 앞부분이 클립 키(chicken_walk)
+                    const m = f.name.match(/^(.+)_(\d+)$/);
+                    if (!m) continue;
+                    this.animFrames.set(`${m[1]}_${+m[2]}`, f);
+                }
+            }
+            if (--pending === 0) done();
+        });
+    }
+
+    /** 클립 키 + 프레임 번호 → SpriteFrame (없으면 null → 애니메이터가 정적 유지) */
+    private animFrameOf(clipKey: string, imgNo: number): SpriteFrame | null {
+        return this.animFrames.get(`${clipKey}_${imgNo}`) ?? null;
+    }
+
+    /**
+     * 애니메이터 생성 — **클립 정의가 아예 없으면 null**을 돌려준다.
+     * 그러면 개체는 기존 정적 스프라이트를 그대로 쓰고 애니메이션 관련 비용이 0이 된다
+     * (아트 반입 전에도 게임이 그대로 돌아가게 하는 폴백).
+     */
+    private makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null {
+        if (!this.animData || this.animFrames.size === 0) return null;
+        const anim = new SpriteAnimator(body.node, body, (k, n) => this.animFrameOf(k, n));
+        anim.setBase(body.node.position.x, baseY, w, h);
+        return anim;
     }
 
     private buildWorld() {
@@ -281,6 +326,11 @@ export class IngameBootstrap extends Component {
             groundR: () => this.map.groundRadius,
             attackPower: () => 1 + this.upgradeBonus('attack'),
             carryLimit: () => 10 + this.upgradeBonus('carry'),
+            // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다
+            playAttackAnim: () => this.playerAnim?.play(this.animData, 'player_attack', true) ?? false,
+            makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
+            playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
+            updateAnim: (anim, dt) => { anim?.update(dt, this.animData); },
             ui: {
                 makeNode: (n, p) => this.makeNode(n, p),
                 addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
@@ -977,6 +1027,9 @@ export class IngameBootstrap extends Component {
             this.detectZone();
         }
 
+        // 플레이어 애니메이션 (이동 중이면 walk, 아니면 idle — 클립 없으면 정적 유지)
+        this.updatePlayerAnim(dt, sx !== 0 || sy !== 0);
+
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
@@ -1267,7 +1320,27 @@ export class IngameBootstrap extends Component {
         }
         body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
         this.playerSprite = body.getComponent(Sprite);
+
+        // 애니메이터 — 클립(player_idle/player_walk/player_attack)이 있으면 그쪽이 스프라이트를 굴린다.
+        // 클립이 없으면 play()가 false를 돌려주고 위의 정적 원화가 그대로 유지된다 (아트 반입 전 폴백).
+        this.playerAnim = new SpriteAnimator(body, this.playerSprite!,
+            (k, n) => this.animFrameOf(k, n),
+            (ev) => { if (ev === 'hit') this.combat?.triggerAttackHit(); });
+        const ut = body.getComponent(UITransform);
+        this.playerAnim.setBase(0, c / 2, ut ? ut.contentSize.width : c, ut ? ut.contentSize.height : c);
         return p;
+    }
+
+    /**
+     * 플레이어 애니메이션 상태 전환 — 이동 여부로 walk/idle, 공격 중엔 attack 유지.
+     * attack 클립은 loop=false·next=player_idle로 두면 끝나고 자동 복귀한다.
+     */
+    private updatePlayerAnim(dt: number, moving: boolean) {
+        const anim = this.playerAnim;
+        if (!anim || !this.animData) return;
+        const attacking = anim.current === 'player_attack' && !anim.done;
+        if (!attacking) anim.play(this.animData, moving ? 'player_walk' : 'player_idle');
+        anim.update(dt, this.animData);
     }
 
     // ── 셋업: 해상도·Canvas·2D 카메라 (씬 수동 세팅 불필요) ──
