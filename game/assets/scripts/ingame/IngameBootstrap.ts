@@ -514,9 +514,22 @@ export class IngameBootstrap extends Component {
                 this.gatePopup?.destroy();
                 this.gatePopup = null;
                 this.gatePopupId = '';
+                this.openGateObjects(gate); // 연결된 문 오브젝트 숨김 (잠김→열림)
                 this.showZoneBannerText(`${destName} 개방!`, '#9FE870');
             }
         });
+    }
+
+    /**
+     * 해금 시 연결된 문 오브젝트를 숨긴다 (잠김 → 열림).
+     * 게이트의 `objectLink1`에 문 오브젝트를 연결하면 해금과 함께 사라진다 —
+     * 열린 문 비주얼이 필요하면 그 자리에 별도 오브젝트를 겹쳐 두면 된다 (임의).
+     */
+    private openGateObjects(gate: MapTriggerDef) {
+        for (const id of gate.objectLinks ?? []) {
+            const node = this.objectNodes.get(id);
+            if (node) node.active = false;
+        }
     }
 
     /** 열려 있는 동안 보유 골드·버튼 활성 상태 갱신 */
@@ -889,6 +902,8 @@ export class IngameBootstrap extends Component {
         const ty = Math.round(gy);
         for (const object of this.map.objects ?? []) {
             if (object.walkable) continue;
+            // 게이트 해금으로 숨겨진(열린) 문 오브젝트는 더 이상 막지 않는다
+            if (object.id && this.objectNodes.get(object.id)?.active === false) continue;
             if (tx >= object.gx && tx < object.gx + object.w &&
                 ty >= object.gy && ty < object.gy + object.h) return true;
         }
@@ -967,7 +982,11 @@ export class IngameBootstrap extends Component {
     }
 
     // ── 맵 오브젝트 (타일 단위 배치물 — 에디터 objects 루트) ──
+    /** objectId → 노드 — 트리거가 연결된 오브젝트를 런타임에 조작(게이트 해금 시 문 숨김) */
+    private objectNodes = new Map<string, Node>();
+
     private buildObjects(parent: Node) {
+        this.objectNodes.clear();
         for (const o of this.map.objects ?? []) {
             // 발자국(w×h 타일) 중심에 배치 — 아이소 폭/높이 = (w+h)/2 타일
             const cx = o.gx + (o.w - 1) / 2;
@@ -976,6 +995,7 @@ export class IngameBootstrap extends Component {
             const isoH = (o.w + o.h) / 2 * TILE_H;
             const p = this.makeNode(`obj_${o.kind}`, parent);
             p.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
+            if (o.id) this.objectNodes.set(o.id, p); // 트리거가 연결로 참조할 수 있게 등록
             // 바닥 데칼 = 항상 캐릭터보다 먼저(뒤에) 그려지게 — 정렬 깊이를 최후방으로
             if (o.floorDecal) (p as unknown as { __sortY: number }).__sortY = 1e6;
 
