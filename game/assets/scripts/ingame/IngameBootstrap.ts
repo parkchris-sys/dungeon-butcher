@@ -423,6 +423,16 @@ export class IngameBootstrap extends Component {
         if (this.hpBarRoot) this.hpBarRoot.active = this.currentZone?.kind === 'dungeon';
     }
 
+    /**
+     * 팝업이 열려 있는지 — 열려 있으면 이동 입력을 막는다.
+     * ⚠ 막지 않으면 버튼을 누르는 터치가 조이스틱으로도 들어가 플레이어가 밀리고,
+     *   발판/문 앞을 벗어나 팝업이 파괴돼 **버튼의 TOUCH_END가 유실**된다(해금·구매가 안 되는 원인).
+     *   §10-b "뒤쪽 딤 처리"(배경 차단) 취지와도 일치.
+     */
+    private popupOpen(): boolean {
+        return !!this.gatePopup || !!this.upPopup;
+    }
+
     /** 강화 보너스 = 레벨 × 레벨당 증가폭 (절대값 방식 — BALANCE §레벨링 원칙) */
     private upgradeBonus(kind: UpgradeKind): number {
         const lv = this.triggerSystem?.upgradeLevel(kind) ?? 0;
@@ -591,6 +601,7 @@ export class IngameBootstrap extends Component {
     private buildGatePopup(gate: MapTriggerDef) {
         this.gatePopup?.destroy();
         this.gatePopupId = gate.id;
+        console.log(`[Gate] 팝업 열림 '${gate.id}' 비용=${gate.unlockCost ?? 0} 목적지=${gate.targetRegionId ?? 0}`);
 
         const dim = this.addSprite('GateDim', this.node, this.squareFrame(), 1080, 1920, this.color('#000000', 170));
         const dw = dim.addComponent(Widget);
@@ -862,6 +873,7 @@ export class IngameBootstrap extends Component {
 
     private onTouchStart(e: EventTouch) {
         if (!this.ready || !this.joystick) return;
+        if (this.popupOpen()) return; // 팝업 중에는 조이스틱을 잡지 않음 (버튼 터치 보호)
         const p = this.uiPos(e);
         if (this.isOnZoomPanel(p)) return; // 줌 버튼 터치는 조이스틱으로 안 잡음
         this.touchOrigin.set(p.x, p.y);
@@ -914,6 +926,8 @@ export class IngameBootstrap extends Component {
             sy = this.touchDir.y;
             inputMag = this.touchMag;
         }
+        // 팝업 중에는 이동 정지 — 버튼 터치가 이동으로 새어 팝업이 닫히는 것 방지
+        if (this.popupOpen()) { sx = 0; sy = 0; }
 
         // 존 진입 배너 페이드 (1초 유지 → 0.8초 페이드)
         if (this.bannerTimer > 0 && this.bannerFade) {
