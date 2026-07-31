@@ -181,10 +181,12 @@ export class TriggerSystem {
 
         customer.paid = true;
         source.timer = TRANSFER_S;
-        const target = this.center(source.def);
+        // 회수한 돈은 2번 연결 트리거로 이송 — 없으면 정산대 자기 자리에 쌓임(회수위치가 가져감)
+        const moneyHolder = this.byId.get(source.def.triggerLinks[1] ?? '') ?? source;
+        const target = this.center(moneyHolder.def);
         this.flyToPoint('Money', customer.node.position.x, customer.node.position.y + 70,
             target.x, target.y + 22, '#F0B429', customer.node.position.y - 1, () => {
-                this.pushItem(source, source.money, 'Money', '#F0B429');
+                this.pushItem(moneyHolder, moneyHolder.money, 'Money', '#F0B429');
                 // 퇴장 시작 — 실제 내보내기(퇴장 타일 따라 이동·비활성)는 CustomerSystem이 처리
                 customer.state = 'leaving';
             });
@@ -298,6 +300,11 @@ export class TriggerSystem {
                     console.warn(`[TriggerSystem] '${trigger.def.id}'의 연결 오브젝트 '${objectId}'를 찾을 수 없습니다`);
                 }
             }
+            // 2번 연결은 전 타입 공통 옵션 — 적혀 있으면 존재 여부만 확인
+            const link2 = trigger.def.triggerLinks[1] ?? '';
+            if (link2 && !this.byId.get(link2)) {
+                console.warn(`[TriggerSystem] '${trigger.def.id}'의 2번 연결 트리거 '${link2}'를 찾을 수 없습니다`);
+            }
             // 플레이어리소스이동은 연결 없음도 정상(회수 모드) — 링크가 적혔을 때만 존재 확인
             if (trigger.def.type === 'player-resource') {
                 const linkId = trigger.def.triggerLinks[0] ?? '';
@@ -310,15 +317,22 @@ export class TriggerSystem {
             if (!required) continue;
             const target = this.byId.get(trigger.def.triggerLinks[0] ?? '');
             if (!target) console.warn(`[TriggerSystem] '${trigger.def.id}'의 1번 연결 트리거를 찾을 수 없습니다`);
-            else if (target.def.type !== required) {
-                console.warn(`[TriggerSystem] '${trigger.def.id}'의 1번 연결은 ${required} 타입이어야 합니다`);
+            // player-resource는 범용 보관소라 어느 자리에든 올 수 있음 (조립식 플로우)
+            else if (target.def.type !== required && target.def.type !== 'player-resource') {
+                console.warn(`[TriggerSystem] '${trigger.def.id}'의 1번 연결은 ${required} 또는 player-resource 타입이어야 합니다`);
             }
         }
     }
 
+    /**
+     * 연결 트리거 조회 — 기대 타입이거나 **플레이어리소스이동(범용 리소스 보관소)** 이면 통과.
+     * 후자를 허용해야 `고기굽기 → 리소스이동B(회수)`처럼 조립식 플로우가 성립한다
+     * (허용 안 하면 대상이 null이 되어 체인이 그 지점에서 끊긴다).
+     */
     private linked(source: RuntimeTrigger, index: number, expected: TriggerType): RuntimeTrigger | null {
         const target = this.byId.get(source.def.triggerLinks[index] ?? '') ?? null;
-        return target?.def.type === expected ? target : null;
+        if (!target) return null;
+        return (target.def.type === expected || target.def.type === 'player-resource') ? target : null;
     }
 
     private containsPlayer(def: MapTriggerDef): boolean {

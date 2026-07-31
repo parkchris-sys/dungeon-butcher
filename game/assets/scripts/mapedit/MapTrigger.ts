@@ -91,6 +91,10 @@ export class MapTrigger extends Component {
         + '플레이어리소스이동: 값이 있으면 → 그 트리거로 보내기 / 비우면 → 플레이어가 회수' })
     triggerLink1 = '';
 
+    @property({ type: CCString, tooltip: '연결 트리거 2번의 triggerId (선택)\n'
+        + '정산대: 회수한 돈을 이 트리거로 이송 (비우면 자기 자리에 쌓임)' })
+    triggerLink2 = '';
+
     @property({ type: Enum(MapResourceKind), tooltip: '플레이어리소스이동 전용: 이송할 리소스 종류 (생고기/요리/돈)' })
     resource = MapResourceKind.생고기;
 

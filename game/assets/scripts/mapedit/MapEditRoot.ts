@@ -878,6 +878,7 @@ export class MapEditRoot extends Component {
             comp.tileW = t.w;
             comp.tileH = t.h;
             comp.triggerLink1 = t.triggerLinks[0] ?? '';
+            comp.triggerLink2 = t.triggerLinks[1] ?? '';
             comp.objectLink1 = t.objectLinks[0] ?? '';
             comp.npcImg = t.npcImg ?? 0;
             comp.resource = resourceEnumOf(t.resource);
@@ -1158,7 +1159,10 @@ export class MapEditRoot extends Component {
                 gy: Math.floor(n.position.y / B - t.tileH / 2 + 0.5),
                 w: t.tileW,
                 h: t.tileH,
-                triggerLinks: t.triggerLink1.trim() ? [t.triggerLink1.trim()] : [],
+                // 연결 트리거 배열 — 인덱스가 의미를 가지므로 1번이 비고 2번만 있어도 자리를 유지
+                triggerLinks: t.triggerLink2.trim()
+                    ? [t.triggerLink1.trim(), t.triggerLink2.trim()]
+                    : (t.triggerLink1.trim() ? [t.triggerLink1.trim()] : []),
                 objectLinks: t.objectLink1.trim() ? [t.objectLink1.trim()] : [],
                 npcImg: t.npcImg || undefined,
                 resource: triggerTypeOf(t.triggerType) === 'player-resource'
@@ -1167,6 +1171,7 @@ export class MapEditRoot extends Component {
         }
         for (const t of triggerList) {
             for (const link of t.triggerLinks) {
+                if (!link) continue; // 1번을 비우고 2번만 쓰는 경우 — 빈 자리는 정상
                 if (!triggerIds.has(link)) console.warn(`[MapEditRoot] 트리거 '${t.id}'의 연결 대상 '${link}'을 찾을 수 없습니다`);
             }
             for (const link of t.objectLinks) {
