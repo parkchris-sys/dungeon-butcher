@@ -9,7 +9,8 @@ import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
 import {
-    MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf, resourceKindOf, resourceEnumOf,
+    MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf,
+    resourceKindOf, resourceEnumOf, upgradeKindOf, upgradeEnumOf,
 } from './MapTrigger';
 import { ensureFloorFrames, floorFrame, retryFloorFrames } from './TileFrameCache';
 import { parseMapRoot } from '../ingame/SceneMapLoader';
@@ -884,6 +885,7 @@ export class MapEditRoot extends Component {
             comp.resource = resourceEnumOf(t.resource);
             comp.targetRegionId = t.targetRegionId ?? 0;
             comp.unlockCost = t.unlockCost ?? 0;
+            comp.upgradeKind = upgradeEnumOf(t.upgradeKind);
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -1172,6 +1174,8 @@ export class MapEditRoot extends Component {
                 targetRegionId: t.targetRegionId || undefined,
                 // 0(무료 통과)도 의미가 있으므로 게이트면 항상 기록
                 unlockCost: triggerTypeOf(t.triggerType) === 'gate' ? t.unlockCost : undefined,
+                upgradeKind: triggerTypeOf(t.triggerType) === 'upgrade'
+                    ? upgradeKindOf(t.upgradeKind) : undefined,
             });
         }
         for (const t of triggerList) {

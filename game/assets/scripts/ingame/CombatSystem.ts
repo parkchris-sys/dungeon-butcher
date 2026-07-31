@@ -53,6 +53,10 @@ export interface CombatHost {
     dungeonKindsOf(dungeonId: number): string[] | null;
     hitsWall(gx: number, gy: number): boolean;
     groundR(): number;
+    /** 강화 반영 공격력 (기본 1 + 강화) — BIBLE §7-b 강화 3종 */
+    attackPower(): number;
+    /** 강화 반영 운반 한계 (기본 10 + 강화) */
+    carryLimit(): number;
     ui: CombatUi;
     onMeatCount(count: number, limit: number): void;
     onHp(hp: number, max: number): void;
@@ -109,7 +113,7 @@ export class CombatSystem {
         this.host = host;
         // 등 뒤 스택 루트 — 플레이어 자식이라 이동을 따라감
         this.stackRoot = host.ui.makeNode('BackStack', host.playerNode());
-        host.onMeatCount(0, BAL.stack.limit);
+        host.onMeatCount(0, host.carryLimit());
         host.onHp(this.hp, BAL.player.maxHp);
     }
 
@@ -132,7 +136,7 @@ export class CombatSystem {
         this.stackKinds.pop();
         piece.destroy();
         this.meatCount = Math.max(0, this.meatCount - 1);
-        this.host.onMeatCount(this.meatCount, BAL.stack.limit);
+        this.host.onMeatCount(this.meatCount, this.host.carryLimit());
         return true;
     }
 
@@ -282,7 +286,7 @@ export class CombatSystem {
         this.stackPieces = [];
         this.stackKinds = [];
         this.meatCount = 0;
-        this.host.onMeatCount(0, BAL.stack.limit);
+        this.host.onMeatCount(0, this.host.carryLimit());
     }
 
     /** 몹끼리 겹침 방지 — 쌍별 밀어내기 (최대 18마리, O(n²) 충분) */
@@ -346,7 +350,7 @@ export class CombatSystem {
         const s = nearest;
         const dx = s.gx - p.gx, dy = s.gy - p.gy;
         const d = Math.max(Math.hypot(dx, dy), 0.001);
-        s.hp -= 1;
+        s.hp -= this.host.attackPower(); // 강화 반영 공격력
         s.flashT = 0.09;
         s.body.color = this.host.ui.color('#FFFFFF');
         // 넉백 (벽 통과 방지)
@@ -420,7 +424,7 @@ export class CombatSystem {
                 // 비행 중인 고기도 곧 스택에 쌓이므로 예약된 칸으로 계산 — 한꺼번에 여러 개를 주워
                 // 한계(limit)를 초과하는 것을 방지 (도착 시점에 meatCount가 늘기 때문)
                 const flying = this.meats.filter(x => x.flying && x.node.active).length;
-                if (this.meatCount + flying >= BAL.stack.limit) {
+                if (this.meatCount + flying >= this.host.carryLimit()) {
                     this.showFull(); // 가득참 — 더 안 주움 (PHASE1 §3)
                 } else {
                     m.flying = true;
@@ -441,7 +445,7 @@ export class CombatSystem {
     // ── 등 뒤 스택 ★ (1~10 개별 조각 + 관성 흔들림) ──
     /** 등짐에 리소스 1개 적재 — 한계 초과면 false. kind: 'raw'(생고기)/'cooked'(요리) */
     addResource(kind: 'raw' | 'cooked'): boolean {
-        if (this.meatCount >= BAL.stack.limit) {
+        if (this.meatCount >= this.host.carryLimit()) {
             this.showFull();
             return false;
         }
@@ -457,7 +461,7 @@ export class CombatSystem {
             this.stackPieces.splice(i, 1);
             this.stackKinds.splice(i, 1);
             this.meatCount = Math.max(0, this.meatCount - 1);
-            this.host.onMeatCount(this.meatCount, BAL.stack.limit);
+            this.host.onMeatCount(this.meatCount, this.host.carryLimit());
             return true;
         }
         return false;
@@ -470,7 +474,7 @@ export class CombatSystem {
 
     private addToStack(kind: 'raw' | 'cooked' = 'raw') {
         this.meatCount += 1;
-        this.host.onMeatCount(this.meatCount, BAL.stack.limit);
+        this.host.onMeatCount(this.meatCount, this.host.carryLimit());
         const ui = this.host.ui;
         const i = this.stackPieces.length;
         // 생고기는 붉은 톤(명암 교차), 요리는 구운 톤 — 등짐만 봐도 뭘 지고 있는지 구분

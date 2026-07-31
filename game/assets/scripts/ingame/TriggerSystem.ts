@@ -1,10 +1,27 @@
 import { Color, Node, SpriteFrame } from 'cc';
-import { MapObjectDef, MapTriggerDef, MapUnitDef, TriggerType, ResourceKind } from './MapData';
+import { MapObjectDef, MapTriggerDef, MapUnitDef, TriggerType, ResourceKind, UpgradeKind } from './MapData';
 import { isoX, isoY, TILE_W } from './Projection';
 
 const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
 const COOK_S = 1.0;          // 고기 1개 요리 시간 — 기획 정의 전 (임의)
 const SPAWN_INTERVAL_S = 10; // NPC 스폰 주기 — 기획의 스폰 규칙 정의 전 (임의: 10초에 1명)
+
+/**
+ * 강화 스펙 (BIBLE §7-b 3종) — **비용 곡선은 기획 TBD라 전부 (임의)**.
+ * 확정되면 이 표 한 곳만 고치면 된다 (BALANCE §강화 비용 곡선 → 여기로 복사).
+ *  - step: 레벨당 증가폭 (절대값 방식 — BALANCE §레벨링 원칙)
+ *  - costBase/costStep: 비용 = costBase + costStep × 현재레벨
+ */
+export const UPGRADE_SPEC: Record<UpgradeKind, {
+    label: string; unit: string; step: number; costBase: number; costStep: number;
+}> = {
+    // 공격력 +1/레벨 = BALANCE §강화 1차 스케치 값 (닭 2타→1타 브레이크포인트)
+    attack: { label: '공격력', unit: '', step: 1, costBase: 50, costStep: 10 },
+    // 이동속도 +20px/s = 무게 페널티 1개분(-20px/s) 상쇄 (임의 — BALANCE에 항목 없음)
+    speed: { label: '이동속도', unit: 'px/s', step: 20, costBase: 50, costStep: 10 },
+    // 운반 한계 +2/레벨 = BALANCE §강화 1차 스케치 값 (시그니처 강화)
+    carry: { label: '운반', unit: '개', step: 2, costBase: 50, costStep: 10 },
+};
 
 /**
  * 손님 상태 — CustomerSystem(이동)과 TriggerSystem(판매/정산)이 공유.
@@ -85,6 +102,8 @@ export class TriggerSystem {
     private readonly npcs: TriggerNpc[];
     /** 해금된 게이트 ID — 세이브가 더미(§5)라 세션 내에서만 유지 (영구 저장은 세이브 도입 시) */
     private readonly unlockedGates = new Set<string>();
+    /** 강화 레벨 — 종류별 구매 횟수. 세이브 도입 전까지 세션 내 유지 */
+    private readonly upgradeLevels = new Map<UpgradeKind, number>();
 
     constructor(
         private readonly host: TriggerHost,
@@ -118,7 +137,8 @@ export class TriggerSystem {
                 case 'money-pickup': this.updateMoneyPickup(trigger); break;
                 case 'npc-spawn': this.updateNpcSpawn(trigger); break;
                 case 'player-resource': this.updatePlayerResource(trigger); break;
-                case 'gate': break; // 게이트는 매 프레임 처리 없음 — 부트스트랩이 조회(lockedGateAt)로 처리
+                // 게이트·강화는 매 프레임 처리 없음 — 부트스트랩이 조회(lockedGateAt/upgradeAt)로 처리
+                case 'gate': case 'upgrade': break;
             }
         }
     }
@@ -288,6 +308,51 @@ export class TriggerSystem {
         this.unlockedGates.add(id);
         console.log(`[TriggerSystem] 게이트 '${id}' 해금 (비용 ${cost})`);
         return true;
+    }
+
+    // ── 강화 (BIBLE §7-a·§7-b, 팝업 규격 §10-b ①) ──
+    /** (gx,gy)를 덮는 강화 발판 — 없으면 null (팝업 열기 기준) */
+    upgradeAt(gx: number, gy: number): MapTriggerDef | null {
+        for (const t of this.byId.values()) {
+            if (t.def.type !== 'upgrade') continue;
+            if (this.containsTile(t.def, Math.round(gx), Math.round(gy))) return t.def;
+        }
+        return null;
+    }
+
+    upgradeLevel(kind: UpgradeKind): number {
+        return this.upgradeLevels.get(kind) ?? 0;
+    }
+
+    /** 다음 1레벨 비용 = costBase + costStep × 현재레벨 (임의 곡선) */
+    upgradeCost(kind: UpgradeKind, levelOffset = 0): number {
+        const s = UPGRADE_SPEC[kind];
+        return s.costBase + s.costStep * (this.upgradeLevel(kind) + levelOffset);
+    }
+
+    /** n회 구매 총액 (연속 레벨 비용의 합) */
+    upgradeCostFor(kind: UpgradeKind, times: number): number {
+        let sum = 0;
+        for (let i = 0; i < times; i++) sum += this.upgradeCost(kind, i);
+        return sum;
+    }
+
+    /**
+     * 강화 구매 — 최대 times회 시도하고 **실제 구매한 횟수**를 돌려준다.
+     * 자금이 모자라면 **가능한 만큼만** 구매 (§10-b 10회 구매 규칙 = 결정).
+     */
+    buyUpgrade(kind: UpgradeKind, times: number): number {
+        let bought = 0;
+        for (let i = 0; i < times; i++) {
+            const cost = this.upgradeCost(kind);
+            if (this.host.gold() < cost || !this.host.spendGold(cost)) break;
+            this.upgradeLevels.set(kind, this.upgradeLevel(kind) + 1);
+            bought++;
+        }
+        if (bought > 0) {
+            console.log(`[TriggerSystem] 강화 ${UPGRADE_SPEC[kind].label} +${bought} → Lv.${this.upgradeLevel(kind)}`);
+        }
+        return bought;
     }
 
     /** 조건을 만족하는 손님 중 spawnId가 가장 작은(먼저 온) 한 명 — 구매위치 우선순위 규칙 */

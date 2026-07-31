@@ -3,7 +3,7 @@ import {
     CCInteger, CCString, Enum,
 } from 'cc';
 import { EDITOR } from 'cc/env';
-import { TriggerType, ResourceKind } from '../ingame/MapData';
+import { TriggerType, ResourceKind, UpgradeKind } from '../ingame/MapData';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 const B = 32;
@@ -21,6 +21,24 @@ export enum MapTriggerKind {
     PlayerResource = 7,
     /** 구역해금 게이트 — 골드 지불로 다음 구역 개방, 해금 전에는 통과 불가 */
     Gate = 8,
+    /** 강화 발판 — 밟으면 강화 팝업, 골드로 스탯 영구 상승 */
+    Upgrade = 9,
+}
+
+/** Inspector 드롭다운용 강화 종류 — 값 순서는 UPGRADE_NAMES와 일치 */
+export enum MapUpgradeKind {
+    공격력 = 0,
+    이동속도 = 1,
+    운반 = 2,
+}
+const UPGRADE_NAMES: UpgradeKind[] = ['attack', 'speed', 'carry'];
+
+export function upgradeKindOf(v: MapUpgradeKind): UpgradeKind {
+    return UPGRADE_NAMES[v] ?? 'attack';
+}
+export function upgradeEnumOf(u: UpgradeKind | undefined): MapUpgradeKind {
+    const i = UPGRADE_NAMES.indexOf(u ?? 'attack');
+    return (i < 0 ? 0 : i) as MapUpgradeKind;
 }
 
 const TYPE_NAMES: TriggerType[] = [
@@ -33,6 +51,7 @@ const TYPE_NAMES: TriggerType[] = [
     'npc-spawn',
     'player-resource',
     'gate',
+    'upgrade',
 ];
 
 const TYPE_COLORS = [
@@ -45,6 +64,7 @@ const TYPE_COLORS = [
     '#3FBFBF',
     '#E0559B',
     '#C9B037',
+    '#4FA3D9',
 ];
 
 /** Inspector 드롭다운용 리소스 종류 — 값 순서는 RESOURCE_NAMES와 일치 */
@@ -113,6 +133,9 @@ export class MapTrigger extends Component {
 
     @property({ type: CCInteger, tooltip: '게이트 전용: 해금 비용(골드).\n0 = 무료 통과(최초 마을→사냥지대 튜토리얼 게이트)' })
     unlockCost = 0;
+
+    @property({ type: Enum(MapUpgradeKind), tooltip: '강화 발판 전용: 강화 종류\n공격력(무기손질대) / 이동속도(신발정비대) / 운반(운반구공방)' })
+    upgradeKind = MapUpgradeKind.공격력;
 
     update() {
         if (!EDITOR) return;

@@ -6,13 +6,13 @@ import {
 } from 'cc';
 import { TILE_W, TILE_H, isoX, isoY, screenToGrid } from './Projection';
 import {
-    MapData, ZoneDef, ZoneKind, ZoneType, TileDef, DEV_MAP, MapTriggerDef,
+    MapData, ZoneDef, ZoneKind, ZoneType, TileDef, DEV_MAP, MapTriggerDef, UpgradeKind,
     buildTileGrid, buildDungeonIdGrid, parseMapDataJson, TILE_ATTR_BLOCKED,
 } from './MapData';
 import { TileView } from './TileView';
 import { parseTiledMap } from './TiledLoader';
 import { CombatSystem } from './CombatSystem';
-import { TriggerNpc, TriggerSystem } from './TriggerSystem';
+import { TriggerNpc, TriggerSystem, UPGRADE_SPEC } from './TriggerSystem';
 import { CustomerSystem, NpcTemplate } from './CustomerSystem';
 
 const { ccclass, property } = _decorator;
@@ -279,6 +279,8 @@ export class IngameBootstrap extends Component {
             dungeonKindsOf: (id) => this.spawnKinds.get(id) ?? null,
             hitsWall: (gx, gy) => this.hitsWall(gx, gy),
             groundR: () => this.map.groundRadius,
+            attackPower: () => 1 + this.upgradeBonus('attack'),
+            carryLimit: () => 10 + this.upgradeBonus('carry'),
             ui: {
                 makeNode: (n, p) => this.makeNode(n, p),
                 addSprite: (n, p, f, w, h, c) => this.addSprite(n, p, f, w, h, c),
@@ -419,6 +421,147 @@ export class IngameBootstrap extends Component {
     /** HP바는 사냥지대(던전)에서만 — 마을에서는 숨김 (BIBLE §10-a) */
     private refreshHpBarVisible() {
         if (this.hpBarRoot) this.hpBarRoot.active = this.currentZone?.kind === 'dungeon';
+    }
+
+    /** 강화 보너스 = 레벨 × 레벨당 증가폭 (절대값 방식 — BALANCE §레벨링 원칙) */
+    private upgradeBonus(kind: UpgradeKind): number {
+        const lv = this.triggerSystem?.upgradeLevel(kind) ?? 0;
+        return lv * UPGRADE_SPEC[kind].step;
+    }
+
+    // ── 강화 팝업 (BIBLE §10-b ① 강화 팝업) ──
+    /**
+     * 공통 규칙(§10-b): 발판 진입 시 자동 열림 · 벗어나면 자동 닫힘 · 닫기 버튼 없음.
+     * 표시 4종: **현재 스탯 · 강화 후(증가분) · 보유 골드 · 필요 골드**.
+     * 버튼: 1회 / 10회 구매 — 10회는 **자금 부족 시 가능한 만큼만** (결정).
+     * 구매해도 팝업은 닫히지 않고 수치만 즉시 갱신 (임의).
+     */
+    private upPopup: Node | null = null;
+    private upPopupId = '';
+    private upKind: UpgradeKind = 'attack';
+    private upCurLabel: Label | null = null;
+    private upNextLabel: Label | null = null;
+    private upGoldLabel: Label | null = null;
+    private upBtn1: Node | null = null;
+    private upBtn1Label: Label | null = null;
+    private upBtn10: Node | null = null;
+    private upBtn10Label: Label | null = null;
+
+    private updateUpgradePopup() {
+        const pad = this.triggerSystem?.upgradeAt(this.pgx, this.pgy) ?? null;
+        if (!pad) {
+            if (this.upPopup) { this.upPopup.destroy(); this.upPopup = null; this.upPopupId = ''; }
+            return;
+        }
+        if (this.upPopupId !== pad.id) this.buildUpgradePopup(pad);
+        this.refreshUpgradePopup();
+    }
+
+    /** 강화 종류별 현재 스탯 값 (표시용) */
+    private upgradeStatValue(kind: UpgradeKind): number {
+        if (kind === 'attack') return 1 + this.upgradeBonus('attack');
+        if (kind === 'carry') return 10 + this.upgradeBonus('carry');
+        return this.moveSpeed + this.upgradeBonus('speed'); // speed
+    }
+
+    private buildUpgradePopup(pad: MapTriggerDef) {
+        this.upPopup?.destroy();
+        this.upPopupId = pad.id;
+        this.upKind = pad.upgradeKind ?? 'attack';
+        const spec = UPGRADE_SPEC[this.upKind];
+
+        const dim = this.addSprite('UpDim', this.node, this.squareFrame(), 1080, 1920, this.color('#000000', 170));
+        const dw = dim.addComponent(Widget);
+        dw.isAlignTop = dw.isAlignBottom = dw.isAlignLeft = dw.isAlignRight = true;
+        dw.top = dw.bottom = dw.left = dw.right = 0;
+        this.upPopup = dim;
+
+        const panel = this.addSprite('Panel', dim, this.squareFrame(), 880, 760, this.color('#221C2C'));
+        panel.setPosition(0, 0, 0);
+
+        // 카테고리명 + 오브젝트명 (§10-b 와이어프레임)
+        const cat = this.makeNode('Cat', panel);
+        cat.setPosition(0, 300, 0);
+        const cl = cat.addComponent(Label);
+        cl.string = `${spec.label} 강화`;
+        cl.fontSize = 62;
+        cl.isBold = true;
+        cl.cacheMode = Label.CacheMode.BITMAP;
+        cl.color = this.color('#F7EFD8');
+
+        const obj = this.makeNode('ObjName', panel);
+        obj.setPosition(0, 236, 0);
+        const ol = obj.addComponent(Label);
+        // 오브젝트명은 에디터 트리거 노드 ID를 그대로 (아트 오브젝트명 확정 시 매핑)
+        ol.string = pad.id;
+        ol.fontSize = 32;
+        ol.color = this.color('#6C6480');
+
+        const row = (y: number, size = 40): Label => {
+            const n = this.makeNode('Row', panel);
+            n.setPosition(0, y, 0);
+            const lb = n.addComponent(Label);
+            lb.fontSize = size;
+            lb.color = this.color('#F7EFD8');
+            return lb;
+        };
+        this.upCurLabel = row(130);
+        this.upNextLabel = row(70);
+        this.upGoldLabel = row(10);
+
+        // 주 버튼: 1회 구매 / 보조: 10회 구매 (닫기 버튼 없음)
+        const mk = (label: string, y: number, times: number, w: number, h: number, bg: string) => {
+            const btn = this.addSprite(`buy${times}`, panel, this.squareFrame(), w, h, this.color(bg));
+            btn.setPosition(0, y, 0);
+            const lb = this.makeNode('L', btn).addComponent(Label);
+            lb.string = label;
+            lb.fontSize = 44;
+            lb.isBold = true;
+            lb.color = this.color('#F7EFD8');
+            btn.on(Node.EventType.TOUCH_END, () => {
+                const bought = this.triggerSystem?.buyUpgrade(this.upKind, times) ?? 0;
+                if (bought > 0) this.showZoneBannerText(`${spec.label} +${bought}`, '#9FE870');
+                this.refreshUpgradePopup(); // 팝업 유지, 수치만 즉시 갱신
+            });
+            return { btn, lb };
+        };
+        const b1 = mk('1회 구매', -110, 1, 560, 116, '#3A3050');
+        this.upBtn1 = b1.btn; this.upBtn1Label = b1.lb;
+        const b10 = mk('10회 구매', -250, 10, 560, 104, '#2E2740');
+        this.upBtn10 = b10.btn; this.upBtn10Label = b10.lb;
+    }
+
+    private refreshUpgradePopup() {
+        const ts = this.triggerSystem;
+        if (!ts) return;
+        const kind = this.upKind;
+        const spec = UPGRADE_SPEC[kind];
+        const cur = this.upgradeStatValue(kind);
+        const cost1 = ts.upgradeCost(kind);
+        const cost10 = ts.upgradeCostFor(kind, 10);
+        const u = spec.unit ? ` ${spec.unit}` : '';
+
+        if (this.upCurLabel) this.upCurLabel.string = `현재 ${spec.label}      ${cur}${u}`;
+        if (this.upNextLabel) {
+            this.upNextLabel.string = `강화 후      ${cur + spec.step}${u}  (+${spec.step})`;
+            this.upNextLabel.color = this.color('#9FE870'); // 증가분 강조 (초록)
+        }
+        if (this.upGoldLabel) {
+            this.upGoldLabel.string = `보유 골드      ${this.goldCount}`;
+            this.upGoldLabel.color = this.color(this.goldCount >= cost1 ? '#F0B429' : '#C0503F');
+        }
+        // 버튼 라벨에 비용 표기 + 골드 부족 시 비활성 표현
+        const setBtn = (btn: Node | null, lb: Label | null, text: string, enough: boolean, bg: string) => {
+            if (lb) {
+                lb.string = text;
+                lb.color = this.color(enough ? '#F7EFD8' : '#6C6480');
+            }
+            const sp = btn?.getComponent(Sprite);
+            if (sp) sp.color = this.color(enough ? bg : '#2A2434');
+        };
+        setBtn(this.upBtn1, this.upBtn1Label, `1회 구매 — ${cost1}G`, this.goldCount >= cost1, '#3A3050');
+        // 10회는 부분 구매 허용이므로 1회분만 있어도 활성 (§10-b 결정)
+        setBtn(this.upBtn10, this.upBtn10Label, `10회 구매 — ${cost10}G`, this.goldCount >= cost1, '#2E2740');
     }
 
     // ── 구역 해금 팝업 (BIBLE §10-b ② 맵 해금 팝업) ──
@@ -787,8 +930,9 @@ export class IngameBootstrap extends Component {
             }
 
             const len = Math.hypot(sx, sy);
-            // 무게 페널티 — 스택이 쌓일수록 느려짐 (운반의 무게, C7 리스크 테이킹)
-            const speed = (this.moveSpeed - IngameBootstrap.WEIGHT_PENALTY * this.carryCount) * inputMag;
+            // 무게 페널티 — 스택이 쌓일수록 느려짐 (운반의 무게, C7 리스크 테이킹) + 이동속도 강화 반영
+            const base = this.moveSpeed + this.upgradeBonus('speed');
+            const speed = (base - IngameBootstrap.WEIGHT_PENALTY * this.carryCount) * inputMag;
             const step = (speed * dt) / len;
             const d = screenToGrid(sx * step, sy * step);
             this.tryMove(d.gx, d.gy);
@@ -804,7 +948,8 @@ export class IngameBootstrap extends Component {
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
         this.updateGoldPopups(dt);
-        this.updateGatePopup(); // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
+        this.updateGatePopup();    // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
+        this.updateUpgradePopup(); // 강화 발판 위면 강화 팝업 (§10-b)
 
         // 던전 코어 갱신 + 깊이 정렬 (개체가 움직이므로 매 프레임)
         if (this.combat) {
