@@ -330,9 +330,14 @@ export class IngameBootstrap extends Component {
             attackPower: () => 1 + this.upgradeBonus('attack'),
             carryLimit: () => 10 + this.upgradeBonus('carry'),
             // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다 (방향별 클립 지원)
-            playAttackAnim: () => {
-                this.playerAttackFacing = this.facing; // 공격 중 방향 고정
-                return this.playDirectional(this.playerAnim, 'player', 'attack', this.facing, true) !== '';
+            playAttackAnim: (faceLeft) => {
+                // 공격 방향 = **표적 방향**(이동 방향이 아니다). 왼쪽으로 걸으며 오른쪽 적을 칠 때
+                // 이동 방향으로 휘두르면 칼질 이펙트만 표적 쪽에 뜨고 몸은 반대로 휘두른다.
+                // null = 표적이 화면상 위/아래 (좌우 판정 불가) → 현재 방향 유지
+                const f: 'left' | 'right' = faceLeft === null ? this.facing : (faceLeft ? 'left' : 'right');
+                this.setFacing(f);                // 공격이 끝난 뒤 idle/walk도 표적을 보고 있게
+                this.playerAttackFacing = f;      // 공격 중 방향 고정 (중간에 뒤집히지 않음)
+                return this.playDirectional(this.playerAnim, 'player', 'attack', f, true) !== '';
             },
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
@@ -1017,14 +1022,7 @@ export class IngameBootstrap extends Component {
         if (sx !== 0 || sy !== 0) {
             // 좌/우 바라보기 — 수평 입력 방향으로 스프라이트 전환 (수직 이동 시 유지)
             const face: 'left' | 'right' | null = sx > 0.01 ? 'right' : sx < -0.01 ? 'left' : null;
-            if (face && face !== this.facing) {
-                this.facing = face;
-                // 애니메이션이 돌고 있으면 방향은 클립·반전이 처리한다 (정적 교체는 덮어쓰기 충돌)
-                const animating = !!this.playerAnim?.current;
-                if (!animating && this.playerFrames[face] && this.playerSprite) {
-                    this.playerSprite.spriteFrame = this.playerFrames[face]!;
-                }
-            }
+            if (face) this.setFacing(face);
 
             const len = Math.hypot(sx, sy);
             // 무게 페널티 — 스택이 쌓일수록 느려짐 (운반의 무게, C7 리스크 테이킹) + 이동속도 강화 반영
@@ -1369,6 +1367,17 @@ export class IngameBootstrap extends Component {
         return anim.play(this.animData, key, restart) ? key : '';
     }
 
+    /** 바라보는 방향 변경 — 애니메이션이 없을 때만 정적 좌/우 원화를 교체한다 */
+    private setFacing(f: 'left' | 'right') {
+        if (f === this.facing) return;
+        this.facing = f;
+        // 애니메이션이 돌고 있으면 방향은 클립·반전이 처리한다 (정적 교체는 덮어쓰기 충돌)
+        const animating = !!this.playerAnim?.current;
+        if (!animating && this.playerFrames[f] && this.playerSprite) {
+            this.playerSprite.spriteFrame = this.playerFrames[f]!;
+        }
+    }
+
     /**
      * 플레이어 애니메이션 상태 전환 — 이동 여부로 walk/idle, 공격 중엔 attack 유지.
      * attack 클립은 loop=false·next=player_idle로 두면 끝나고 자동 복귀한다.
@@ -1376,10 +1385,11 @@ export class IngameBootstrap extends Component {
     private updatePlayerAnim(dt: number, moving: boolean) {
         const anim = this.playerAnim;
         if (!anim || !this.animData) return;
-        // 공격 중에는 방향만 갱신하고 클립은 유지 (attack 종료 시 next로 복귀)
+        // 공격 중에는 클립·방향을 그대로 둔다 (attack 종료 시 next로 복귀).
+        // ⚠ 여기서 setMirror를 다시 걸면 안 된다 — 방향별 클립(player_attack_left)은
+        //   playDirectional이 이미 반전 없이 재생했으므로 한 번 더 뒤집으면 반대로 보인다.
         const attacking = anim.current.startsWith('player_attack') && !anim.done;
-        if (attacking) anim.setMirror(this.playerAttackFacing === 'left');
-        else this.playDirectional(anim, 'player', moving ? 'walk' : 'idle', this.facing);
+        if (!attacking) this.playDirectional(anim, 'player', moving ? 'walk' : 'idle', this.facing);
         anim.update(dt, this.animData);
     }
 

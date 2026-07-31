@@ -58,8 +58,11 @@ export interface CombatHost {
     attackPower(): number;
     /** 강화 반영 운반 한계 (기본 10 + 강화) */
     carryLimit(): number;
-    /** 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false) */
-    playAttackAnim(): boolean;
+    /**
+     * 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false).
+     * @param faceLeft 표적이 화면 왼쪽인지 (null = 위/아래라 좌우 판정 불가 → 현재 방향 유지)
+     */
+    playAttackAnim(faceLeft: boolean | null): boolean;
     /** 몬스터용 애니메이터 생성 (클립·프레임이 없으면 null → 기존 정적 표시 유지) */
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
@@ -376,7 +379,10 @@ export class CombatSystem {
 
         // 공격 애니메이션이 있으면 **타격을 'hit' 프레임까지 지연**한다 (애니메이션 타이밍과 손맛 일치).
         // 클립이 없으면(아트 미반입) 즉시 타격 — 기존 동작 유지.
-        if (this.host.playAttackAnim()) {
+        // 방향은 **표적의 화면 x 부호**로 넘긴다 (iso: isoX=(gx-gy)*TILE_W/2 이므로 부호는 (dgx-dgy))
+        const sdx = (nearest.gx - p.gx) - (nearest.gy - p.gy);
+        const faceLeft = Math.abs(sdx) < 0.05 ? null : sdx < 0; // 화면상 정위/정하면 방향 유지
+        if (this.host.playAttackAnim(faceLeft)) {
             this.pendingHit = { target: nearest, timeout: BAL.attack.hitTimeoutS };
         } else {
             this.applyHit(nearest);
