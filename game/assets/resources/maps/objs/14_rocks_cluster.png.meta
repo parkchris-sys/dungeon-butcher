@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "a5f94": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "2346cbf9-3609-4944-92d8-a3272bd85709@a5f94",
+      "uuid": "2346cbf9-3609-4944-92d8-a3272bd85709@6c48a",
       "displayName": "14_rocks_cluster",
-      "id": "a5f94",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,21 +32,21 @@
       ],
       "subMetas": {}
     },
-    "b221b": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "2346cbf9-3609-4944-92d8-a3272bd85709@b221b",
+      "uuid": "2346cbf9-3609-4944-92d8-a3272bd85709@f9941",
       "displayName": "14_rocks_cluster",
-      "id": "b221b",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
-        "trimX": 0,
-        "trimY": 0,
-        "width": 306,
-        "height": 241,
+        "offsetX": 1,
+        "offsetY": -1,
+        "trimX": 2,
+        "trimY": 2,
+        "width": 304,
+        "height": 239,
         "rawWidth": 306,
         "rawHeight": 241,
         "borderTop": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -153,
-            -120.5,
+            -152,
+            -119.5,
             0,
-            153,
-            -120.5,
+            152,
+            -119.5,
             0,
-            -153,
-            120.5,
+            -152,
+            119.5,
             0,
-            153,
-            120.5,
+            152,
+            119.5,
             0
           ],
           "indexes": [
@@ -82,38 +82,38 @@
             3
           ],
           "uv": [
-            0,
-            241,
+            2,
+            239,
             306,
-            241,
-            0,
+            239,
+            2,
             0,
             306,
             0
           ],
           "nuv": [
-            0,
-            0,
-            1,
-            0,
+            0.006535947712418301,
             0,
             1,
+            0,
+            0.006535947712418301,
+            0.991701244813278,
             1,
-            1
+            0.991701244813278
           ],
           "minPos": [
-            -153,
-            -120.5,
+            -152,
+            -119.5,
             0
           ],
           "maxPos": [
-            153,
-            120.5,
+            152,
+            119.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "2346cbf9-3609-4944-92d8-a3272bd85709@a5f94",
+        "imageUuidOrDatabaseUri": "2346cbf9-3609-4944-92d8-a3272bd85709@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "2346cbf9-3609-4944-92d8-a3272bd85709@a5f94"
+    "redirect": "2346cbf9-3609-4944-92d8-a3272bd85709@6c48a"
   }
 }

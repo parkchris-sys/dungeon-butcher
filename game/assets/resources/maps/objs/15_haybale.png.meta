@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "afaca": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "47313b87-cd67-4222-bb7f-09d93690e4f7@afaca",
+      "uuid": "47313b87-cd67-4222-bb7f-09d93690e4f7@6c48a",
       "displayName": "15_haybale",
-      "id": "afaca",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,21 +32,21 @@
       ],
       "subMetas": {}
     },
-    "b5f13": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "47313b87-cd67-4222-bb7f-09d93690e4f7@b5f13",
+      "uuid": "47313b87-cd67-4222-bb7f-09d93690e4f7@f9941",
       "displayName": "15_haybale",
-      "id": "b5f13",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
+        "offsetX": -0.5,
+        "offsetY": -1,
         "trimX": 0,
-        "trimY": 0,
-        "width": 321,
-        "height": 224,
+        "trimY": 2,
+        "width": 320,
+        "height": 222,
         "rawWidth": 321,
         "rawHeight": 224,
         "borderTop": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -160.5,
-            -112,
+            -160,
+            -111,
             0,
-            160.5,
-            -112,
+            160,
+            -111,
             0,
-            -160.5,
-            112,
+            -160,
+            111,
             0,
-            160.5,
-            112,
+            160,
+            111,
             0
           ],
           "indexes": [
@@ -83,37 +83,37 @@
           ],
           "uv": [
             0,
-            224,
-            321,
-            224,
+            222,
+            320,
+            222,
             0,
             0,
-            321,
+            320,
             0
           ],
           "nuv": [
             0,
             0,
-            1,
+            0.9968847352024922,
             0,
             0,
-            1,
-            1,
-            1
+            0.9910714285714286,
+            0.9968847352024922,
+            0.9910714285714286
           ],
           "minPos": [
-            -160.5,
-            -112,
+            -160,
+            -111,
             0
           ],
           "maxPos": [
-            160.5,
-            112,
+            160,
+            111,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "47313b87-cd67-4222-bb7f-09d93690e4f7@afaca",
+        "imageUuidOrDatabaseUri": "47313b87-cd67-4222-bb7f-09d93690e4f7@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "47313b87-cd67-4222-bb7f-09d93690e4f7@afaca"
+    "redirect": "47313b87-cd67-4222-bb7f-09d93690e4f7@6c48a"
   }
 }

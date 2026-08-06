@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "aa746": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "9940c59c-50d6-4592-8a36-09b347455647@aa746",
+      "uuid": "9940c59c-50d6-4592-8a36-09b347455647@6c48a",
       "displayName": "22_flowers",
-      "id": "aa746",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,21 +32,21 @@
       ],
       "subMetas": {}
     },
-    "be648": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "9940c59c-50d6-4592-8a36-09b347455647@be648",
+      "uuid": "9940c59c-50d6-4592-8a36-09b347455647@f9941",
       "displayName": "22_flowers",
-      "id": "be648",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
-        "trimX": 0,
+        "offsetX": -0.5,
+        "offsetY": 1,
+        "trimX": 1,
         "trimY": 0,
-        "width": 177,
-        "height": 153,
+        "width": 174,
+        "height": 151,
         "rawWidth": 177,
         "rawHeight": 153,
         "borderTop": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -88.5,
-            -76.5,
+            -87,
+            -75.5,
             0,
-            88.5,
-            -76.5,
+            87,
+            -75.5,
             0,
-            -88.5,
-            76.5,
+            -87,
+            75.5,
             0,
-            88.5,
-            76.5,
+            87,
+            75.5,
             0
           ],
           "indexes": [
@@ -82,38 +82,38 @@
             3
           ],
           "uv": [
-            0,
+            1,
             153,
-            177,
+            175,
             153,
-            0,
-            0,
-            177,
-            0
+            1,
+            2,
+            175,
+            2
           ],
           "nuv": [
-            0,
-            0,
+            0.005649717514124294,
+            0.013071895424836602,
+            0.9887005649717514,
+            0.013071895424836602,
+            0.005649717514124294,
             1,
-            0,
-            0,
-            1,
-            1,
+            0.9887005649717514,
             1
           ],
           "minPos": [
-            -88.5,
-            -76.5,
+            -87,
+            -75.5,
             0
           ],
           "maxPos": [
-            88.5,
-            76.5,
+            87,
+            75.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "9940c59c-50d6-4592-8a36-09b347455647@aa746",
+        "imageUuidOrDatabaseUri": "9940c59c-50d6-4592-8a36-09b347455647@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "9940c59c-50d6-4592-8a36-09b347455647@aa746"
+    "redirect": "9940c59c-50d6-4592-8a36-09b347455647@6c48a"
   }
 }
