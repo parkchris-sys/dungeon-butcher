@@ -1,0 +1,27 @@
+{
+  "name": "dungeon-butcher",
+  "version": "1.0.0",
+  "description": "3인 팀(기획·아트·개발) AI 협업 프로젝트. 6일 MVP 목표.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parkchris-sys/dungeon-butcher.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/parkchris-sys/dungeon-butcher/issues"
+  },
+  "homepage": "https://github.com/parkchris-sys/dungeon-butcher#readme",
+  "dependencies": {
+    "jimp": "^0.22.12"
+  }
+}
