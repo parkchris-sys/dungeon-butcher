@@ -16,6 +16,7 @@ import { TriggerNpc, TriggerSystem, UPGRADE_SPEC } from './TriggerSystem';
 import { CustomerSystem, NpcTemplate } from './CustomerSystem';
 import { AnimData, animKey, parseAnimDataJson } from './AnimData';
 import { SpriteAnimator } from './SpriteAnimator';
+import { Dir8, DIR8_MIRROR, DIR8_VEC, dirFromScreen, sideOf } from './Facing8';
 
 const { ccclass, property } = _decorator;
 
@@ -62,7 +63,11 @@ export class IngameBootstrap extends Component {
     /** 플레이어 스프라이트 (resources/chars/player_left·right.png — 없으면 흰 박스 폴백) */
     private playerFrames: { left?: SpriteFrame; right?: SpriteFrame } = {};
     private playerSprite: Sprite | null = null;
-    private facing: 'left' | 'right' = 'right';
+    /** 바라보는 방향 — **주인공만 8방향** (BIBLE §6-a). 화면 기준, 자세히는 Facing8.ts */
+    private facing: Dir8 = 'e';
+    /** 마지막 좌/우 성분 — 8방향 아트가 없을 때의 폴백·등짐 위치용 (n·s엔 좌우가 없다) */
+    private lastSide: 'e' | 'w' = 'e';
+    private movingNow = false; // 이 프레임 이동 중인지 — 공격 클립 분화(attack_idle/attack_walk)용
     private pressed = new Set<KeyCode>();
     private pgx = 0;  // 플레이어 그리드 좌표
     private pgy = 0;
@@ -164,7 +169,7 @@ export class IngameBootstrap extends Component {
     private animData: AnimData | null = null;
     private animFrames = new Map<string, SpriteFrame>();
     private playerAnim: SpriteAnimator | null = null;
-    private playerAttackFacing: 'left' | 'right' = 'right'; // 공격 시작 시 방향 고정
+    private playerAttackFacing: Dir8 = 'e'; // 공격 시작 시 방향 고정
     /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
     private floorSprites: { node: Node; x: number; y: number; hw: number; hh: number }[] = [];
 
@@ -318,7 +323,7 @@ export class IngameBootstrap extends Component {
             entities: this.entities,
             playerNode: () => this.player,
             playerG: () => ({ gx: this.pgx, gy: this.pgy }),
-            facing: () => this.facing,
+            facing: () => this.lastSide, // 등짐 위치용 좌/우 (8방향 중 n·s는 좌우가 없어 직전 값)
             inDungeon: () => this.currentZone?.kind === 'dungeon',
             inHub: () => this.currentZone?.kind === 'hub',
             zoneKindAt: (gx, gy) => this.zoneKindAt(gx, gy),
@@ -329,16 +334,18 @@ export class IngameBootstrap extends Component {
             groundR: () => this.map.groundRadius,
             attackPower: () => 1 + this.upgradeBonus('attack'),
             carryLimit: () => 10 + this.upgradeBonus('carry'),
-            // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다 (방향별 클립 지원)
-            playAttackAnim: (faceLeft) => {
-                // 공격 방향 = **표적 방향**(이동 방향이 아니다). 왼쪽으로 걸으며 오른쪽 적을 칠 때
-                // 이동 방향으로 휘두르면 칼질 이펙트만 표적 쪽에 뜨고 몸은 반대로 휘두른다.
-                // null = 표적이 화면상 위/아래 (좌우 판정 불가) → 현재 방향 유지
-                const f: 'left' | 'right' = faceLeft === null ? this.facing : (faceLeft ? 'left' : 'right');
-                this.setFacing(f);                // 공격이 끝난 뒤 idle/walk도 표적을 보고 있게
-                this.playerAttackFacing = f;      // 공격 중 방향 고정 (중간에 뒤집히지 않음)
-                return this.playDirectional(this.playerAnim, 'player', 'attack', f, true) !== '';
+            // 공격 클립이 있으면 재생하고 true — 타격은 'hit' 프레임에 들어간다 (방향별 클립 지원).
+            // ⚠ 방향은 **바라보는 방향 그대로**다 — 표적 쪽으로 자동 회전하지 않는다 (결정 2026-08-07).
+            playAttackAnim: () => {
+                this.playerAttackFacing = this.facing; // 공격 중 방향 고정 (중간에 뒤집히지 않음)
+                // 이동 중이면 attack_walk, 멈춰 있으면 attack_idle → 없으면 기본 attack (BIBLE §6-b 디테일 2)
+                const states = this.movingNow ? ['attack_walk', 'attack'] : ['attack_idle', 'attack'];
+                return this.playDirectional(this.playerAnim, 'player', states, this.facing, true) !== '';
             },
+            // 바라보는 방향 단위 벡터 (화면 기준) — "바라보는 방향의 적만 공격" 판정용
+            facingVec: () => DIR8_VEC[this.facing],
+            // 만재 전용 클립이 있으면 땀 플레이스홀더를 띄우지 않는다 (클립 쪽 연출과 중복)
+            hasHeavyAnim: () => this.hasHeavyClips(),
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
             updateAnim: (anim, dt, faceLeft) => {
@@ -1020,8 +1027,8 @@ export class IngameBootstrap extends Component {
         }
 
         if (sx !== 0 || sy !== 0) {
-            // 좌/우 바라보기 — 수평 입력 방향으로 스프라이트 전환 (수직 이동 시 유지)
-            const face: 'left' | 'right' | null = sx > 0.01 ? 'right' : sx < -0.01 ? 'left' : null;
+            // 바라보기 — 입력 벡터를 8방향으로 스냅 (주인공만 8방향, 합의 2026-08-07)
+            const face = dirFromScreen(sx, sy);
             if (face) this.setFacing(face);
 
             const len = Math.hypot(sx, sy);
@@ -1040,7 +1047,8 @@ export class IngameBootstrap extends Component {
         }
 
         // 플레이어 애니메이션 (이동 중이면 walk, 아니면 idle — 클립 없으면 정적 유지)
-        this.updatePlayerAnim(dt, sx !== 0 || sy !== 0);
+        this.movingNow = sx !== 0 || sy !== 0; // 공격 클립 분화 판단에 재사용
+        this.updatePlayerAnim(dt, this.movingNow);
 
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
@@ -1325,7 +1333,7 @@ export class IngameBootstrap extends Component {
         p.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
 
         // 아트가 있으면 원화(높이 c 기준, 폭은 원본 비율), 없으면 흰 박스 폴백
-        const art = this.playerFrames[this.facing] ?? null;
+        const art = this.staticArt();
         let body: Node;
         if (art) {
             const w = c * (art.rect.width / art.rect.height);
@@ -1354,28 +1362,75 @@ export class IngameBootstrap extends Component {
      *  ② 없으면 `{kind}_{state}` + **좌우 반전** (한쪽만 그린 경우 — 물량 절반)
      * 반환: 실제로 재생 중인 클립 키 ('' = 클립 없음 → 정적 이미지 유지)
      */
-    private playDirectional(anim: SpriteAnimator | null, kind: string, state: string,
-        facing: 'left' | 'right', restart = false): string {
+    private playDirectional(anim: SpriteAnimator | null, kind: string, states: string[],
+        dir: Dir8, restart = false): string {
         if (!anim || !this.animData) return '';
-        const dirKey = `${kind}_${state}_${facing}`;
-        if (this.animData.clips[dirKey]) {
-            anim.setMirror(false);
-            return anim.play(this.animData, dirKey, restart) ? dirKey : '';
+        const data = this.animData;
+        const side = sideOf(dir) ?? this.lastSide; // n·s는 좌우 성분이 없어 직전 값을 쓴다
+        const tryKey = (state: string, d: string, mirror: boolean): string => {
+            const k = `${kind}_${state}_${d}`;
+            if (!data.clips[k]) return '';
+            anim.setMirror(mirror);
+            return anim.play(data, k, restart) ? k : '';
+        };
+        // 상태는 **선호 순서**대로 (예: idle_heavy → idle). 각 상태 안에서 방향 폴백을 먼저 다 시도한다
+        // — "만재 걸음"처럼 상태가 주는 정보가 방향 정확도보다 중요하기 때문.
+        for (const state of states) {
+            // ① 그 방향 클립 그대로
+            let key = tryKey(state, dir, false);
+            if (key) return key;
+            // ② 좌우 반전 짝 (e·ne·se만 그려도 w·nw·sw가 나온다 — BIBLE §6-a 제작 5방향)
+            const pair = DIR8_MIRROR[dir];
+            if (pair) {
+                key = tryKey(state, pair, true);
+                if (key) return key;
+            }
+            // ③ 8방향 아트 반입 전 폴백 — 좌/우(e·w) 클립으로 대체
+            if (side !== dir) {
+                key = tryKey(state, side, false);
+                if (key) return key;
+                key = tryKey(state, DIR8_MIRROR[side]!, true);
+                if (key) return key;
+            }
+            // ④ 무방향 클립 + 좌우 반전
+            const legacy = animKey(kind, state);
+            if (data.clips[legacy]) {
+                anim.setMirror(side === 'w');
+                return anim.play(data, legacy, restart) ? legacy : '';
+            }
         }
-        const key = animKey(kind, state);
-        anim.setMirror(facing === 'left'); // 한쪽 그림을 뒤집어 사용
-        return anim.play(this.animData, key, restart) ? key : '';
+        return '';
     }
 
-    /** 바라보는 방향 변경 — 애니메이션이 없을 때만 정적 좌/우 원화를 교체한다 */
-    private setFacing(f: 'left' | 'right') {
+    /** 등짐 만재 여부 — 만재 전용 클립(idle_heavy·walk_heavy) 선택 + 공격 잠금 표시에 쓴다 */
+    private isHeavy(): boolean {
+        return this.carryCount >= 10 + this.upgradeBonus('carry');
+    }
+
+    /** 만재 전용 클립이 하나라도 반입됐는지 (방향 무관) — 땀 플레이스홀더 중복 방지 */
+    private hasHeavyClips(): boolean {
+        if (!this.animData) return false;
+        for (const k of Object.keys(this.animData.clips)) {
+            if (k.startsWith('player_idle_heavy') || k.startsWith('player_walk_heavy')) return true;
+        }
+        return false;
+    }
+
+    /** 정적 원화 (클립 미반입 폴백) — 좌/우 2장뿐이라 8방향 중 좌우 성분만 반영된다 */
+    private staticArt(): SpriteFrame | null {
+        return (this.lastSide === 'w' ? this.playerFrames.left : this.playerFrames.right) ?? null;
+    }
+
+    /** 바라보는 방향 변경 (8방향) — 애니메이션이 없을 때만 정적 좌/우 원화를 교체한다 */
+    private setFacing(f: Dir8) {
         if (f === this.facing) return;
         this.facing = f;
+        const side = sideOf(f);
+        if (side) this.lastSide = side; // n·s는 좌우 성분이 없으므로 직전 값을 유지
         // 애니메이션이 돌고 있으면 방향은 클립·반전이 처리한다 (정적 교체는 덮어쓰기 충돌)
         const animating = !!this.playerAnim?.current;
-        if (!animating && this.playerFrames[f] && this.playerSprite) {
-            this.playerSprite.spriteFrame = this.playerFrames[f]!;
-        }
+        const art = this.staticArt();
+        if (!animating && art && this.playerSprite) this.playerSprite.spriteFrame = art;
     }
 
     /**
@@ -1386,10 +1441,15 @@ export class IngameBootstrap extends Component {
         const anim = this.playerAnim;
         if (!anim || !this.animData) return;
         // 공격 중에는 클립·방향을 그대로 둔다 (attack 종료 시 next로 복귀).
-        // ⚠ 여기서 setMirror를 다시 걸면 안 된다 — 방향별 클립(player_attack_left)은
+        // ⚠ 여기서 setMirror를 다시 걸면 안 된다 — 방향별 클립(player_attack_w)은
         //   playDirectional이 이미 반전 없이 재생했으므로 한 번 더 뒤집으면 반대로 보인다.
         const attacking = anim.current.startsWith('player_attack') && !anim.done;
-        if (!attacking) this.playDirectional(anim, 'player', moving ? 'walk' : 'idle', this.facing);
+        if (!attacking) {
+            // 만재면 중량 초과 클립 우선, 없으면 기본 클립 (BIBLE §6-b 디테일 1)
+            const base = moving ? 'walk' : 'idle';
+            const states = this.isHeavy() ? [`${base}_heavy`, base] : [base];
+            this.playDirectional(anim, 'player', states, this.facing);
+        }
         anim.update(dt, this.animData);
     }
 

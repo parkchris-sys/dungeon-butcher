@@ -1,5 +1,5 @@
 import { Node, Sprite, SpriteFrame, Color, Label } from 'cc';
-import { isoX, isoY } from './Projection';
+import { isoX, isoY, TILE_W, TILE_H } from './Projection';
 import { SpriteAnimator } from './SpriteAnimator';
 
 /**
@@ -44,7 +44,8 @@ export interface CombatHost {
     entities: Node;
     playerNode(): Node;
     playerG(): { gx: number; gy: number };
-    facing(): 'left' | 'right';
+    /** 바라보는 좌/우 성분 (화면 기준 e·w) — 등짐 위치용 */
+    facing(): 'e' | 'w';
     inDungeon(): boolean;
     inHub(): boolean;
     zoneKindAt(gx: number, gy: number): 'hub' | 'dungeon' | 'corridor' | null;
@@ -58,11 +59,12 @@ export interface CombatHost {
     attackPower(): number;
     /** 강화 반영 운반 한계 (기본 10 + 강화) */
     carryLimit(): number;
-    /**
-     * 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false).
-     * @param faceLeft 표적이 화면 왼쪽인지 (null = 위/아래라 좌우 판정 불가 → 현재 방향 유지)
-     */
-    playAttackAnim(faceLeft: boolean | null): boolean;
+    /** 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false) */
+    playAttackAnim(): boolean;
+    /** 바라보는 방향 단위 벡터 (화면 기준, +y=위) — 공격 대상 판정에 쓴다 */
+    facingVec(): [number, number];
+    /** 만재 전용 클립(idle_heavy·walk_heavy)이 반입됐는지 — true면 땀 플레이스홀더를 띄우지 않는다 */
+    hasHeavyAnim(): boolean;
     /** 몬스터용 애니메이터 생성 (클립·프레임이 없으면 null → 기존 정적 표시 유지) */
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
@@ -118,6 +120,7 @@ export class CombatSystem {
     private meatCount = 0;
     private fullLabel: Node | null = null;
     private fullT = 0;
+    private sweatNode: Node | null = null; // 만재(공격 불가) 상태 표시 — 땀
 
     private hp = BAL.player.maxHp;
     private invulnT = 0;
@@ -365,13 +368,25 @@ export class CombatSystem {
     private updateAttack(dt: number) {
         this.attackTimer -= dt;
         if (this.attackTimer > 0) return;
+
+        // 등짐 만재 시 공격 불가 (결정 2026-08-07) — 줍지도 싸우지도 못해 귀환이 강제된다.
+        // 상태는 땀 표시로 알린다 (BIBLE §3·§8).
+        if (this.meatCount >= this.host.carryLimit()) {
+            this.showSweat(true);
+            return;
+        }
+        this.showSweat(false);
+
         const p = this.host.playerG();
         let nearest: Chicken | null = null;
         let nearestD = Infinity;
         for (const s of this.chickens) {
             if (s.dieT > 0) continue;
             const d = Math.hypot(s.gx - p.gx, s.gy - p.gy);
-            if (d < nearestD) { nearestD = d; nearest = s; }
+            if (d >= nearestD) continue;
+            // 바라보는 방향의 적만 (결정 2026-08-07) — 등진 적에게 자동으로 돌아서지 않는다
+            if (!this.inFacingCone(p, s)) continue;
+            nearestD = d; nearest = s;
         }
         if (!nearest || nearestD > BAL.attack.range) return;
 
@@ -379,14 +394,51 @@ export class CombatSystem {
 
         // 공격 애니메이션이 있으면 **타격을 'hit' 프레임까지 지연**한다 (애니메이션 타이밍과 손맛 일치).
         // 클립이 없으면(아트 미반입) 즉시 타격 — 기존 동작 유지.
-        // 방향은 **표적의 화면 x 부호**로 넘긴다 (iso: isoX=(gx-gy)*TILE_W/2 이므로 부호는 (dgx-dgy))
-        const sdx = (nearest.gx - p.gx) - (nearest.gy - p.gy);
-        const faceLeft = Math.abs(sdx) < 0.05 ? null : sdx < 0; // 화면상 정위/정하면 방향 유지
-        if (this.host.playAttackAnim(faceLeft)) {
+        if (this.host.playAttackAnim()) {
             this.pendingHit = { target: nearest, timeout: BAL.attack.hitTimeoutS };
         } else {
             this.applyHit(nearest);
         }
+    }
+
+    /**
+     * 바라보는 방향 판정 — 표적이 시야 원뿔 안에 있는지 (결정 2026-08-07 "바라보는 방향의 적만").
+     *
+     * 아이소 2:1이라 화면 각도로 판정한다: 그리드 축 이웃은 화면 ±26.57°, 그리드 대각 이웃은
+     * 0/90/180/270°에 놓인다. **원뿔 반각 60° (임의)** — 8방향 한 칸(45°)에 맞춰 ±45°로 하면
+     * 대각 방향을 볼 때 이웃 타일이 정확히 경계(±45°)에 걸려 부동소수 오차로 들쭉날쭉해진다.
+     * 확정 시 이 상수만 고치면 된다 (수치 정본은 BALANCE — 아직 항목 없음).
+     */
+    private static readonly FACING_CONE_COS = 0.5; // cos(60°)
+
+    private inFacingCone(p: { gx: number; gy: number }, s: Chicken): boolean {
+        // 그리드 → 화면 벡터 (isoX=(gx-gy)*TILE_W/2, isoY=(gx+gy)*TILE_H/2)
+        const dgx = s.gx - p.gx, dgy = s.gy - p.gy;
+        const ex = (dgx - dgy) * (TILE_W / 2);
+        const ey = (dgx + dgy) * (TILE_H / 2);
+        const len = Math.hypot(ex, ey);
+        if (len < 1) return true; // 겹쳐 있으면 방향 무의미 — 때린다
+        const [fx, fy] = this.host.facingVec();
+        return (ex / len) * fx + (ey / len) * fy >= CombatSystem.FACING_CONE_COS;
+    }
+
+    /**
+     * 만재 상태 표시 — 땀 (BIBLE §3·§8, 결정 2026-08-07).
+     * ⚠ 물방울 2개 플레이스홀더 (임의) — **중량 초과 클립(BIBLE §6-b 디테일 1)이 반입되면
+     *   그쪽 연출이 대신하므로 자동으로 꺼진다.**
+     */
+    private showSweat(on: boolean) {
+        if (on && this.host.hasHeavyAnim()) on = false;
+        if (!this.sweatNode) {
+            if (!on) return;
+            const ui = this.host.ui;
+            const node = ui.makeNode('SweatMark', this.host.playerNode());
+            node.setPosition(0, 0, 0);
+            ui.addSprite('Drop1', node, ui.square(), 7, 12, ui.color('#8FD3F4')).setPosition(34, 150, 0);
+            ui.addSprite('Drop2', node, ui.square(), 5, 9, ui.color('#8FD3F4')).setPosition(-32, 140, 0);
+            this.sweatNode = node;
+        }
+        if (this.sweatNode.active !== on) this.sweatNode.active = on;
     }
 
     /** 애니메이션 'hit' 이벤트 — 이 시점에 실제 데미지가 들어간다 (부트스트랩이 호출) */
@@ -552,7 +604,7 @@ export class CombatSystem {
 
     private updateStack(dt: number) {
         // 등판 위치 = 바라보는 방향의 반대쪽
-        const back = this.host.facing() === 'right' ? -20 : 20;
+        const back = this.host.facing() === 'e' ? -20 : 20;
         this.stackRoot.setPosition(back, 66, 0);
         for (let i = 0; i < this.stackPieces.length; i++) {
             // 위로 갈수록 크게 흔들림(관성) — BIBLE §3
