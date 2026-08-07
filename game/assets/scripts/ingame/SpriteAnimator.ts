@@ -104,6 +104,9 @@ export class SpriteAnimator {
         // 개체마다 시작 위상을 흩어 준다 — 22마리가 같은 프레임으로 움직이면 기계처럼 보임
         this.t = clip.loop ? Math.random() * this.frameDuration(clip, clip.frames[0]) : 0;
         this.finished = false;
+        // ⚠ applyFrame보다 **먼저** — applyFrame이 baseW/baseH에 스케일 기교를 곱하므로,
+        //   기준 크기를 원본 비율로 맞춰 두지 않으면 플레이스홀더 박스 규격이 그대로 남아 납작해진다.
+        this.applyFit(clip.frames[0].img);
         this.applyFrame(clip.frames[0], false);
         return true;
     }
