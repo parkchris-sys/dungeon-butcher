@@ -89,9 +89,6 @@ export class IngameBootstrap extends Component {
     private bannerFade: UIOpacity | null = null;
     private bannerTimer = 0;
 
-    // 현재 타일 하이라이트 (칸 단위 스냅)
-    private tileCursor: Node | null = null;
-
     // 줌 조절 패널 (실기기 확정용 — 값 확정되면 제거)
     private zoomPanel: Node | null = null;
     private zoomLabel: Label | null = null;
@@ -278,10 +275,6 @@ export class IngameBootstrap extends Component {
         // 구역별 통짜 바닥 이미지 (타일 베이스 위, 커서·개체 아래) + 화면 밖 컬링
         this.buildFloors(this.world);
 
-        // 현재 타일 하이라이트 (디자인 목업식 — 칸 단위 스냅, 생고기 레드 틴트)
-        this.tileCursor = this.addSprite('TileCursor', this.world, this.diamondFrame(),
-            TILE_W, TILE_H, this.color('#C0503F', 100));
-
         // 맵 에디터 몬스터 배치 → 던전별 스폰 종류 (같은 던전에 여러 종류 배치 가능)
         this.spawnKinds.clear();
         for (const m of this.map.monsters ?? []) {
@@ -307,9 +300,6 @@ export class IngameBootstrap extends Component {
         this.pgx = this.map.playerSpawn.gx;
         this.pgy = this.map.playerSpawn.gy;
         this.player = this.buildPlayer(this.entities);
-        this.tileCursor!.setPosition(
-            isoX(Math.round(this.pgx), Math.round(this.pgy)),
-            isoY(Math.round(this.pgx), Math.round(this.pgy)), 0);
 
         this.buildZoneBanner();
         this.buildJoystick();
@@ -446,11 +436,6 @@ export class IngameBootstrap extends Component {
         this.pgx = this.map.playerSpawn.gx;
         this.pgy = this.map.playerSpawn.gy;
         this.player.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
-        if (this.tileCursor) {
-            this.tileCursor.setPosition(
-                isoX(Math.round(this.pgx), Math.round(this.pgy)),
-                isoY(Math.round(this.pgx), Math.round(this.pgy)), 0);
-        }
         this.detectZone();
         // 사망 안내 배너
         if (this.bannerLabel && this.bannerFade) {
@@ -1039,10 +1024,6 @@ export class IngameBootstrap extends Component {
             const d = screenToGrid(sx * step, sy * step);
             this.tryMove(d.gx, d.gy);
             this.player.setPosition(isoX(this.pgx, this.pgy), isoY(this.pgx, this.pgy), 0);
-            if (this.tileCursor) {
-                const cx = Math.round(this.pgx), cy = Math.round(this.pgy);
-                this.tileCursor.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
-            }
             this.detectZone();
         }
 
