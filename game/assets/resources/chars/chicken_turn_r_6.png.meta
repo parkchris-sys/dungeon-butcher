@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "ae30c": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@ae30c",
+      "uuid": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@6c48a",
       "displayName": "chicken_turn_r_6",
-      "id": "ae30c",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,22 +32,22 @@
       ],
       "subMetas": {}
     },
-    "bad04": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@bad04",
+      "uuid": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@f9941",
       "displayName": "chicken_turn_r_6",
-      "id": "bad04",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
-        "trimX": 0,
-        "trimY": 0,
-        "width": 267,
+        "offsetX": -8.5,
+        "offsetY": -1,
+        "trimX": 18,
+        "trimY": 2,
+        "width": 272,
         "height": 256,
-        "rawWidth": 267,
+        "rawWidth": 272,
         "rawHeight": 256,
         "borderTop": 0,
         "borderBottom": 0,
@@ -60,16 +60,16 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -133.5,
+            -136,
             -128,
             0,
-            133.5,
+            136,
             -128,
             0,
-            -133.5,
+            -136,
             128,
             0,
-            133.5,
+            136,
             128,
             0
           ],
@@ -84,11 +84,11 @@
           "uv": [
             0,
             256,
-            267,
+            272,
             256,
             0,
             0,
-            267,
+            272,
             0
           ],
           "nuv": [
@@ -102,18 +102,18 @@
             1
           ],
           "minPos": [
-            -133.5,
+            -136,
             -128,
             0
           ],
           "maxPos": [
-            133.5,
+            136,
             128,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@ae30c",
+        "imageUuidOrDatabaseUri": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@ae30c"
+    "redirect": "3e1e33ce-f2d6-4359-996e-09a6e7a1c6e2@6c48a"
   }
 }

@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "a7489": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@a7489",
+      "uuid": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@6c48a",
       "displayName": "chicken_turn_l_5",
-      "id": "a7489",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,20 +32,20 @@
       ],
       "subMetas": {}
     },
-    "bb66e": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@bb66e",
+      "uuid": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@f9941",
       "displayName": "chicken_turn_l_5",
-      "id": "bb66e",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
+        "offsetX": 12.5,
         "offsetY": 0,
-        "trimX": 0,
+        "trimX": 40,
         "trimY": 0,
-        "width": 267,
+        "width": 212,
         "height": 256,
         "rawWidth": 267,
         "rawHeight": 256,
@@ -60,16 +60,16 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -133.5,
+            -106,
             -128,
             0,
-            133.5,
+            106,
             -128,
             0,
-            -133.5,
+            -106,
             128,
             0,
-            133.5,
+            106,
             128,
             0
           ],
@@ -82,38 +82,38 @@
             3
           ],
           "uv": [
-            0,
+            40,
             256,
-            267,
+            252,
             256,
+            40,
             0,
-            0,
-            267,
+            252,
             0
           ],
           "nuv": [
+            0.149812734082397,
             0,
+            0.9438202247191011,
             0,
+            0.149812734082397,
             1,
-            0,
-            0,
-            1,
-            1,
+            0.9438202247191011,
             1
           ],
           "minPos": [
-            -133.5,
+            -106,
             -128,
             0
           ],
           "maxPos": [
-            133.5,
+            106,
             128,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@a7489",
+        "imageUuidOrDatabaseUri": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@a7489"
+    "redirect": "13a903cd-8991-4594-abaa-e4b87f4ae6c2@6c48a"
   }
 }
