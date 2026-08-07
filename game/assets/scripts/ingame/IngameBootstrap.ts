@@ -1239,6 +1239,7 @@ export class IngameBootstrap extends Component {
             this.combat.update(dt);
             this.customerSystem?.update(dt); // 손님 이동 먼저 — 트리거가 갱신된 위치를 봄
             this.triggerSystem?.update(dt);
+            this.updateObjectDepth(); // 정렬 직전에 오브젝트 깊이를 플레이어 기준으로 갱신
             this.sortEntities();
         }
 
@@ -1398,6 +1399,8 @@ export class IngameBootstrap extends Component {
     /** 덮개(안개) 수치 — 전부 (임의) */
     private static readonly COVER_ALPHA = 255;  // 최대 불투명도 (낮추면 실루엣이 비친다)
     private static readonly COVER_FADE_S = 0.5; // 걷히는/덮이는 속도 (지수 추종 시간상수)
+    /** 구역 사각형 밖 여유(타일, 임의) — 바닥 이미지가 사각형보다 크게 깔리는 만큼 봐준다 */
+    private static readonly COVER_MARGIN = 2;
 
     /**
      * 구역 덮개(안개) — **마을에 있을 때 던전이 보이지 않게** 가린다 (요청 2026-08-07).
@@ -1452,11 +1455,15 @@ export class IngameBootstrap extends Component {
         const k = 1 - Math.exp(-dt / IngameBootstrap.COVER_FADE_S);
         // 통로에 서 있으면 양쪽(마을·던전)이 함께 걷힌다 — 통로가 조망 지점이 된다
         const onCorridor = this.zoneKindAt(this.pgx, this.pgy) === 'corridor';
+        const M = IngameBootstrap.COVER_MARGIN;
         for (const c of this.coverSprites) {
-            // 이 구역 안에 있는지 (사각형 판정)
-            const inside = this.pgx >= c.gx && this.pgx <= c.gx + c.w - 1
-                && this.pgy >= c.gy && this.pgy <= c.gy + c.h - 1;
-            const target = (inside || onCorridor) ? 0 : IngameBootstrap.COVER_ALPHA;
+            // 이 구역 안(또는 여유 M타일 안)에 있는지.
+            // ⚠ 여유가 필요한 이유: 바닥 이미지는 floorScale로 구역 사각형보다 크게 깔리는 경우가
+            //   많아, 사각형만 보면 "보이는 바닥에 서 있는데 구역 밖"이 되어 덮개가 자기 몸까지 덮는다.
+            //   반대로 덮개 그림 범위로 판정하면(4배 확대된 던전 바닥) 너무 관대해져 전부 걷힌다.
+            const inRect = this.pgx >= c.gx - M && this.pgx <= c.gx + c.w - 1 + M
+                && this.pgy >= c.gy - M && this.pgy <= c.gy + c.h - 1 + M;
+            const target = (inRect || onCorridor) ? 0 : IngameBootstrap.COVER_ALPHA;
             c.alpha += (target - c.alpha) * k;
             const a = Math.round(c.alpha);
             if (c.op.opacity !== a) c.op.opacity = a;
@@ -1486,9 +1493,12 @@ export class IngameBootstrap extends Component {
     // ── 맵 오브젝트 (타일 단위 배치물 — 에디터 objects 루트) ──
     /** objectId → 노드 — 트리거가 연결된 오브젝트를 런타임에 조작(게이트 해금 시 문 숨김) */
     private objectNodes = new Map<string, Node>();
+    /** 깊이 정렬용 오브젝트 발자국 — 매 프레임 플레이어 위치로 정렬키를 다시 계산한다 */
+    private objectDepths: { node: Node; x0: number; y0: number; x1: number; y1: number }[] = [];
 
     private buildObjects(parent: Node) {
         this.objectNodes.clear();
+        this.objectDepths = [];
         for (const o of this.map.objects ?? []) {
             // 발자국(w×h 타일) 중심에 배치 — 아이소 폭/높이 = (w+h)/2 타일
             const cx = o.gx + (o.w - 1) / 2;
@@ -1502,11 +1512,13 @@ export class IngameBootstrap extends Component {
             if (o.floorDecal) {
                 (p as unknown as { __sortY: number }).__sortY = 1e6;
             } else {
-                // 정렬 깊이 = **발자국의 앞쪽(아래) 꼭짓점** — 노드 위치(발자국 중심)가 아니다.
-                // ⚠ 그림은 아래 꼭짓점에 앵커되므로 중심으로 정렬하면 긴 오브젝트(1×4 등)에서
-                //   그림이 서 있는 자리보다 (w+h)/2 타일만큼 뒤로 정렬돼, 옆·뒤에 선 캐릭터가
-                //   오브젝트 위로 올라온다. 앵커와 정렬 기준을 일치시켜 항상 가려지게 한다.
-                (p as unknown as { __sortY: number }).__sortY = isoY(o.gx, o.gy);
+                // 정렬 깊이는 **매 프레임 플레이어 위치로 다시 계산**한다 (updateObjectDepth).
+                // 스프라이트 1장으로는 앞/뒤를 동시에 만족할 수 없어, 발자국 중 플레이어에게
+                //   가장 가까운 칸을 기준으로 잡아야 긴 오브젝트에서도 앞뒤가 맞는다.
+                this.objectDepths.push({
+                    node: p, x0: o.gx, y0: o.gy, x1: o.gx + o.w - 1, y1: o.gy + o.h - 1,
+                });
+                (p as unknown as { __sortY: number }).__sortY = isoY(o.gx, o.gy); // 초기값
             }
 
             if (!o.floorDecal) { // 바닥 데칼은 그림자 없음(바닥에 붙음)
@@ -1571,6 +1583,22 @@ export class IngameBootstrap extends Component {
     }
 
     /** 아이소 깊이 정렬 — 화면 y가 클수록(위) 뒤로. Entities 자식 siblingIndex 갱신 */
+    /**
+     * 오브젝트 깊이 갱신 — **발자국 중 플레이어에게 가장 가까운 칸**의 깊이를 정렬키로 쓴다.
+     *
+     * 왜 고정키로 안 되나: 긴 오브젝트(3×1 등)는 스프라이트 1장이라 앞/뒤를 동시에 만족할 수 없다.
+     * 중심으로 잡으면 뒤에 선 캐릭터가 위로 올라오고(제보 1), 앞 꼭짓점으로 잡으면 옆·앞에 선
+     * 캐릭터까지 묻힌다(제보 2). 플레이어 좌표를 발자국 사각형에 **클램프**해서 그 칸을 쓰면
+     * 두 경우가 모두 맞는다 — 캐릭터가 그 칸보다 앞이면 앞에, 뒤면 뒤에 그려진다.
+     */
+    private updateObjectDepth() {
+        for (const o of this.objectDepths) {
+            const cx = math.clamp(this.pgx, o.x0, o.x1);
+            const cy = math.clamp(this.pgy, o.y0, o.y1);
+            (o.node as unknown as { __sortY: number }).__sortY = isoY(cx, cy);
+        }
+    }
+
     private sortEntities() {
         const children = this.entities.children.slice();
         // 화면 y가 클수록(위) 뒤로. 일부 노드는 __sortY로 정렬 깊이를 따로 지정(트리거 아이템 등)
