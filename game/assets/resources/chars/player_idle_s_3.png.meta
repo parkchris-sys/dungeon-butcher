@@ -2,22 +2,22 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7",
+  "uuid": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08",
   "files": [
     ".json",
     ".png"
   ],
   "subMetas": {
-    "a8408": {
+    "a005f": {
       "importer": "texture",
-      "uuid": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7@a8408",
-      "displayName": "player_walk_s_1",
-      "id": "a8408",
+      "uuid": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08@a005f",
+      "displayName": "player_idle_s_3",
+      "id": "a005f",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
         "wrapModeT": "clamp-to-edge",
-        "imageUuidOrDatabaseUri": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7",
+        "imageUuidOrDatabaseUri": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08",
         "isUuid": true,
         "visible": false,
         "minfilter": "linear",
@@ -32,11 +32,11 @@
       ],
       "subMetas": {}
     },
-    "b7d68": {
+    "bdc62": {
       "importer": "sprite-frame",
-      "uuid": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7@b7d68",
-      "displayName": "player_walk_s_1",
-      "id": "b7d68",
+      "uuid": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08@bdc62",
+      "displayName": "player_idle_s_3",
+      "id": "bdc62",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
@@ -113,7 +113,7 @@
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7@a8408",
+        "imageUuidOrDatabaseUri": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08@a005f",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "d1a8f4a0-1ac4-4188-8b62-46d99f7dd6c7@a8408"
+    "redirect": "d77493f2-f1fd-4fef-9ba8-eccdf4209b08@a005f"
   }
 }
