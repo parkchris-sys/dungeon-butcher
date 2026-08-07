@@ -8,6 +8,7 @@ import { MapTile } from './MapTile';
 import { TileRegion } from './TileRegion';
 import { MapUnit } from './MapUnit';
 import { MapObject } from './MapObject';
+import { EditFlags } from './EditFlags';
 import {
     MapTrigger, MapTriggerKind, triggerKindOf, triggerTypeOf,
     resourceKindOf, resourceEnumOf, upgradeKindOf, upgradeEnumOf,
@@ -52,6 +53,10 @@ export class MapEditRoot extends Component {
 
     @property({ tooltip: '배치 기준 격자 줄 표시 on/off (항상 최상위에 그려짐)' })
     showGrid = true;
+
+    @property({ tooltip: '오브젝트가 점유하는 타일 표시 on/off — 초록=통과 가능 / 빨강=통과 불가.\n'
+        + '이미지에 가려 어느 칸에 올라갔는지 안 보일 때 켜 두면 된다 (내보내기에는 영향 없음)' })
+    showObjectTiles = true;
 
     @property({ tooltip: '체크 = 타일 편집 구역 추가 (8×8)' })
     addRegion = false;
@@ -415,6 +420,8 @@ export class MapEditRoot extends Component {
             grid.active = this.showGrid;
             grid.setSiblingIndex(this.node.children.length - 1);
         }
+        // 오브젝트 점유 타일 표시 토글 — 각 MapObject가 이 플래그를 읽어 마커를 켜고 끈다
+        EditFlags.showObjectTiles = this.showObjectTiles;
     }
 
     /** 구역마다 objects 하위 그룹 — 종속 오브젝트가 구역 자식이라 구역과 함께 움직임 */

@@ -3,6 +3,7 @@ import { EDITOR } from 'cc/env';
 import { objFrame, ensureObjFrames, retryObjFrames } from './TileFrameCache';
 import { TileRegion } from './TileRegion';
 import { TILE_W, TILE_H } from '../ingame/Projection';
+import { EditFlags } from './EditFlags';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 
@@ -54,7 +55,9 @@ export class MapObject extends Component {
     imgOffY = 0;
 
     private lastKey = '';
+    private lastTilesKey = '';
     private imgNode: Node | null = null;
+    private tilesNode: Node | null = null;
     private rescanTick = 0;
 
     update() {
@@ -81,6 +84,8 @@ export class MapObject extends Component {
         const fitX = (gx0 - 0.5 + w / 2) * B - ox;
         const fitY = (gy0 - 0.5 + h / 2) * B - oy;
         if (p.x !== fitX || p.y !== fitY) this.node.setPosition(fitX, fitY, 0);
+
+        this.refreshTileMark(w, h);
 
         const sf = objFrame(this.img);
         const scale = this.imgScale || 1;
@@ -124,6 +129,71 @@ export class MapObject extends Component {
                 base.color = c;
             }
         }
+    }
+
+    /**
+     * 점유 타일 표시 — 어느 칸에 올라가는지 한눈에 보이게 **마름모 윤곽 + 옅은 채움**을 깐다.
+     * ⚠ 이미지를 지정하면 밑판 Sprite를 숨기기 때문에(알파 상속 문제) 점유 영역이 안 보인다.
+     *   그래서 별도 노드로 항상 표시하고, 역보정을 걸지 않아 청사진 공간의 정사각형이
+     *   화면에서는 아이소 마름모로 보인다. 여러 칸이면 칸 경계선까지 그어 개수를 셀 수 있다.
+     * 색: 통과 가능(walkable)=초록 / 통과 불가=빨강. 표시 on/off는 MapEditRoot 체크박스.
+     */
+    private refreshTileMark(w: number, h: number) {
+        const on = EditFlags.showObjectTiles;
+        const key = `${on},${w},${h},${this.walkable}`;
+        if (key === this.lastTilesKey) return;
+        this.lastTilesKey = key;
+
+        if (!on) {
+            if (this.tilesNode) this.tilesNode.active = false;
+            return;
+        }
+        const frame = this.getComponent(Sprite)?.spriteFrame ?? null;
+        if (!frame) return;
+
+        const root = this.ensureTilesNode();
+        root.active = true;
+        for (const child of [...root.children]) child.destroy();
+
+        const hex = this.walkable ? '#4FD06A' : '#E8574C';
+        const bar = (name: string, x: number, y: number, bw: number, bh: number, alpha: number) => {
+            const n = new Node(name);
+            n.hideFlags = CCObject.Flags.DontSave;
+            n.layer = Layers.Enum.UI_2D;
+            root.addChild(n);
+            n.addComponent(UITransform).setContentSize(bw, bh);
+            n.setPosition(x, y, 0);
+            const sp = n.addComponent(Sprite);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            sp.spriteFrame = frame;
+            const c = new Color();
+            Color.fromHEX(c, hex);
+            c.a = alpha;
+            sp.color = c;
+        };
+        const W = w * B, H = h * B, T = 2; // T: 경계선 두께(청사진 px)
+        bar('fill', 0, 0, W, H, 40);                                  // 옅은 채움 — 아트를 가리지 않게
+        bar('top', 0, H / 2 - T / 2, W, T, 210);                      // 외곽 4변
+        bar('bottom', 0, -H / 2 + T / 2, W, T, 210);
+        bar('left', -W / 2 + T / 2, 0, T, H, 210);
+        bar('right', W / 2 - T / 2, 0, T, H, 210);
+        for (let i = 1; i < w; i++) bar(`vx${i}`, -W / 2 + i * B, 0, 1, H, 120);   // 칸 경계
+        for (let i = 1; i < h; i++) bar(`hy${i}`, 0, -H / 2 + i * B, W, 1, 120);
+    }
+
+    /** 점유 타일 표시 노드 — 역보정 없음(마름모로 보이게), 이미지보다 위에 그려 항상 보이게 */
+    private ensureTilesNode(): Node {
+        if (this.tilesNode && this.tilesNode.isValid) return this.tilesNode;
+        for (const child of [...this.node.children]) {
+            if (child.name === '_tiles') child.destroy(); // 씬에 저장된 잔재 제거
+        }
+        const n = new Node('_tiles');
+        n.hideFlags = CCObject.Flags.DontSave;
+        n.layer = Layers.Enum.UI_2D;
+        this.node.addChild(n);
+        n.addComponent(UITransform);
+        this.tilesNode = n;
+        return n;
     }
 
     /** 역보정 이미지 노드 — anchorY 0: 하단 기준 */
