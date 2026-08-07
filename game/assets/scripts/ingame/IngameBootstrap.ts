@@ -211,6 +211,7 @@ export class IngameBootstrap extends Component {
                     const frame = new SpriteFrame();
                     frame.texture = tex;
                     frame.packable = false;
+                    IngameBootstrap.pixelate(frame);
                     assign(frame);
                 }
                 if (--playerPending === 0 && --pending === 0) done();
@@ -223,6 +224,7 @@ export class IngameBootstrap extends Component {
                     for (const frame of frames) {
                         const m = frame.name.match(/^(\d+)_/); // {ID}_{이름}
                         if (!m) continue;
+                        IngameBootstrap.pixelate(frame);
                         into.set(+m[1], frame);
                     }
                 }
@@ -257,11 +259,24 @@ export class IngameBootstrap extends Component {
                     // 파일명 끝의 `_{n}`을 프레임 번호로 — 앞부분이 클립 키(chicken_walk)
                     const m = f.name.match(/^(.+)_(\d+)$/);
                     if (!m) continue;
+                    IngameBootstrap.pixelate(f);
                     this.animFrames.set(`${m[1]}_${+m[2]}`, f);
                 }
             }
             if (--pending === 0) done();
         });
+    }
+
+    /**
+     * 픽셀아트 표시 설정 — **최근접(nearest) 필터**로 바꾼다 (아트 방향: 픽셀아트, BIBLE §5).
+     * 임포터 기본값은 선형 보간이라, 41×59 원화를 128px로 키우면 픽셀이 뭉개져 흐려진다.
+     * ⚠ 스프라이트 아틀라스로 묶이면 텍스처를 공유하므로 한 번만 걸려도 전체에 적용된다.
+     */
+    private static pixelate(frame: SpriteFrame) {
+        const tex = frame.texture as Texture2D;
+        if (tex && typeof tex.setFilters === 'function') {
+            tex.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+        }
     }
 
     /** 클립 키 + 프레임 번호 → SpriteFrame (없으면 null → 애니메이터가 정적 유지) */
