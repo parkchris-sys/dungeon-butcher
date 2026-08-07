@@ -1,5 +1,5 @@
 import { Node, Sprite, SpriteFrame, Color, Label } from 'cc';
-import { isoX, isoY, TILE_W, TILE_H } from './Projection';
+import { isoX, isoY, TILE_W } from './Projection';
 import { SpriteAnimator } from './SpriteAnimator';
 
 /**
@@ -61,7 +61,7 @@ export interface CombatHost {
     carryLimit(): number;
     /** 공격 애니메이션 시작 — true면 타격을 'hit' 프레임까지 지연한다 (클립 없으면 false) */
     playAttackAnim(): boolean;
-    /** 바라보는 방향 단위 벡터 (화면 기준, +y=위) — 공격 대상 판정에 쓴다 */
+    /** 바라보는 방향 단위 벡터 (화면 기준) — 좌우 2방향이라 x 성분만 의미가 있다 */
     facingVec(): [number, number];
     /** 만재 전용 클립(idle_heavy·walk_heavy)이 반입됐는지 — true면 땀 플레이스홀더를 띄우지 않는다 */
     hasHeavyAnim(): boolean;
@@ -403,8 +403,8 @@ export class CombatSystem {
             if (s.dieT > 0) continue;
             const d = Math.hypot(s.gx - p.gx, s.gy - p.gy);
             if (d >= nearestD) continue;
-            // 바라보는 방향의 적만 (결정 2026-08-07) — 등진 적에게 자동으로 돌아서지 않는다
-            if (!this.inFacingCone(p, s)) continue;
+            // 바라보는 방향(화면 좌/우)의 적만 — 등진 적에게 자동으로 돌아서지 않는다 (결정 2026-08-07)
+            if (!this.inFacingSide(p, s)) continue;
             nearestD = d; nearest = s;
         }
         if (!nearest || nearestD > BAL.attack.range) return;
@@ -421,14 +421,11 @@ export class CombatSystem {
     }
 
     /**
-     * 바라보는 방향 판정 — 표적이 시야 원뿔 안에 있는지 (결정 2026-08-07 "바라보는 방향의 적만").
-     *
-     * 아이소 2:1이라 화면 각도로 판정한다: 그리드 축 이웃은 화면 ±26.57°, 그리드 대각 이웃은
-     * 0/90/180/270°에 놓인다. **원뿔 반각 60° (임의)** — 8방향 한 칸(45°)에 맞춰 ±45°로 하면
-     * 대각 방향을 볼 때 이웃 타일이 정확히 경계(±45°)에 걸려 부동소수 오차로 들쭉날쭉해진다.
-     * 확정 시 이 상수만 고치면 된다 (수치 정본은 BALANCE — 아직 항목 없음).
+     * 화면상 거의 정위/정하로 판단하는 폭(px, 임의) — 이 안이면 좌우 구분이 무의미해 공격을 허용한다.
+     * ⚠ 없으면 안 된다: 좌우 2방향(결정 2026-08-07 롤백)에서는 방향을 좌우로만 바꿀 수 있어서,
+     *   화면 정위/정하에 있는 적을 어느 쪽을 봐도 못 때리는 상황이 생긴다.
      */
-    private static readonly FACING_CONE_COS = 0.5; // cos(60°)
+    private static readonly FACING_DEADZONE_PX = 12;
 
     /**
      * 몬스터 좌우 턴 데드존 (타일, 임의) — 표적이 화면상 거의 수직 방향일 때
@@ -436,15 +433,17 @@ export class CombatSystem {
      */
     private static readonly TURN_DEADZONE = 0.25;
 
-    private inFacingCone(p: { gx: number; gy: number }, s: Chicken): boolean {
-        // 그리드 → 화면 벡터 (isoX=(gx-gy)*TILE_W/2, isoY=(gx+gy)*TILE_H/2)
-        const dgx = s.gx - p.gx, dgy = s.gy - p.gy;
-        const ex = (dgx - dgy) * (TILE_W / 2);
-        const ey = (dgx + dgy) * (TILE_H / 2);
-        const len = Math.hypot(ex, ey);
-        if (len < 1) return true; // 겹쳐 있으면 방향 무의미 — 때린다
-        const [fx, fy] = this.host.facingVec();
-        return (ex / len) * fx + (ey / len) * fy >= CombatSystem.FACING_CONE_COS;
+    /**
+     * 바라보는 방향 판정 — "바라보는 방향의 적만" (결정 2026-08-07).
+     *
+     * 좌우 2방향이므로 **화면 좌/우 반평면** 판정이다 (8방향 시절의 ±60° 원뿔에서 변경).
+     * 원뿔을 유지하면 위/아래 적을 영원히 못 때린다 — 방향을 좌우로만 돌릴 수 있으므로.
+     */
+    private inFacingSide(p: { gx: number; gy: number }, s: Chicken): boolean {
+        // 그리드 → 화면 x (isoX=(gx-gy)*TILE_W/2)
+        const ex = ((s.gx - p.gx) - (s.gy - p.gy)) * (TILE_W / 2);
+        if (Math.abs(ex) < CombatSystem.FACING_DEADZONE_PX) return true; // 정위/정하 — 방향 무의미
+        return ex * this.host.facingVec()[0] > 0;
     }
 
     /**

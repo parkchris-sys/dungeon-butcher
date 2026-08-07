@@ -16,7 +16,7 @@ import { TriggerNpc, TriggerSystem, UPGRADE_SPEC } from './TriggerSystem';
 import { CustomerSystem, NpcTemplate } from './CustomerSystem';
 import { AnimData, animKey, parseAnimDataJson } from './AnimData';
 import { SpriteAnimator } from './SpriteAnimator';
-import { Dir8, DIR8_MIRROR, DIR8_VEC, dirFromScreen, sideOf } from './Facing8';
+import { Dir8, DIR8_MIRROR, dirFromScreen, sideOf } from './Facing8';
 
 const { ccclass, property } = _decorator;
 
@@ -286,7 +286,7 @@ export class IngameBootstrap extends Component {
      * 반전으로 쓴 경우 클립이 끝난 뒤 반전 상태가 방향과 어긋나지만,
      * 턴이 끝나면 updateAnim이 다시 방향대로 반전을 걸어 스스로 맞춰진다.
      */
-    private playMonsterTurn(anim: SpriteAnimator | null, kind: string, toLeft: boolean): boolean {
+    private playTurn(anim: SpriteAnimator | null, kind: string, toLeft: boolean): boolean {
         if (!anim || !this.animData) return false;
         if (IngameBootstrap.isTurnClip(anim.current) && !anim.done) return false; // 도는 중이면 방해하지 않음
         const want = `${kind}_turn_${toLeft ? 'l' : 'r'}`;
@@ -384,14 +384,15 @@ export class IngameBootstrap extends Component {
                 const states = this.movingNow ? ['attack_walk', 'attack'] : ['attack_idle', 'attack'];
                 return this.playDirectional(this.playerAnim, 'player', states, this.facing, true) !== '';
             },
-            // 바라보는 방향 단위 벡터 (화면 기준) — "바라보는 방향의 적만 공격" 판정용
-            facingVec: () => DIR8_VEC[this.facing],
+            // 바라보는 방향 벡터 — **화면에 실제로 그려지는 좌/우**를 쓴다 (좌우 2방향 롤백, 결정 2026-08-07).
+            // 8방향 벡터를 쓰면 스프라이트는 오른쪽을 보는데 판정은 대각으로 갈려 어긋난다.
+            facingVec: () => (this.lastSide === 'w' ? [-1, 0] : [1, 0]) as [number, number],
             // 만재 전용 클립이 있으면 땀 플레이스홀더를 띄우지 않는다 (클립 쪽 연출과 중복)
             hasHeavyAnim: () => this.hasHeavyClips(),
             showDamage: (amount, gx, gy) => this.showDamage(amount, gx, gy),
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
-            playMonsterTurn: (anim, kind, toLeft) => this.playMonsterTurn(anim, kind, toLeft),
+            playMonsterTurn: (anim, kind, toLeft) => this.playTurn(anim, kind, toLeft),
             updateAnim: (anim, dt, faceLeft) => {
                 // 좌우 반전으로 방향 처리 (몬스터는 좌우 2방향 — BIBLE §6-a).
                 // ⚠ 턴 클립 재생 중에는 건드리지 않는다 — 회전을 그림 자체가 담고 있어서
@@ -1571,7 +1572,12 @@ export class IngameBootstrap extends Component {
         if (f === this.facing) return;
         this.facing = f;
         const side = sideOf(f);
-        if (side) this.lastSide = side; // n·s는 좌우 성분이 없으므로 직전 값을 유지
+        if (side && side !== this.lastSide) {
+            this.lastSide = side;
+            // 좌우 2방향이라 180도가 한 번에 뒤집힌다 — 턴 클립(player_turn_l/r)이 반입되면 끼워 넣는다
+            // (BIBLE §6-a "턴 애니메이션이 필요할 수 있다"). 클립이 없으면 아무 일도 하지 않는다.
+            this.playTurn(this.playerAnim, 'player', side === 'w');
+        }
         // 애니메이션이 돌고 있으면 방향은 클립·반전이 처리한다 (정적 교체는 덮어쓰기 충돌)
         const animating = !!this.playerAnim?.current;
         const art = this.staticArt();
@@ -1589,7 +1595,8 @@ export class IngameBootstrap extends Component {
         // ⚠ 여기서 setMirror를 다시 걸면 안 된다 — 방향별 클립(player_attack_w)은
         //   playDirectional이 이미 반전 없이 재생했으므로 한 번 더 뒤집으면 반대로 보인다.
         const attacking = anim.current.startsWith('player_attack') && !anim.done;
-        if (!attacking) {
+        const turning = IngameBootstrap.isTurnClip(anim.current) && !anim.done;
+        if (!attacking && !turning) {
             // 만재면 중량 초과 클립 우선, 없으면 기본 클립 (BIBLE §6-b 디테일 1)
             const base = moving ? 'walk' : 'idle';
             const states = this.isHeavy() ? [`${base}_heavy`, base] : [base];
