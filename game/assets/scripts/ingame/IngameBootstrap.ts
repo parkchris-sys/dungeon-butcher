@@ -366,6 +366,7 @@ export class IngameBootstrap extends Component {
         this.buildProps(this.entities);
         this.buildObjects(this.entities);
         this.buildNpcs(this.entities);
+        this.rebuildSolidTiles(); // 이동 판정 캐시 — 오브젝트 배치가 끝난 뒤 1회
 
         // 플레이어 외형 — 에디터 spawn 마커의 img (maps/units) 지정 시 원화 대체 (좌우 동일 — 방향별 아트는 추후)
         const skin = this.map.playerImg ? this.unitFrames.get(this.map.playerImg) : undefined;
@@ -400,7 +401,9 @@ export class IngameBootstrap extends Component {
             dungeonIdAt: (gx, gy) => this.dungeonIdAt(gx, gy),
             playerDungeonId: () => this.dungeonIdAt(this.pgx, this.pgy),
             dungeonKindsOf: (id) => this.spawnKinds.get(id) ?? null,
-            hitsWall: (gx, gy) => this.hitsWall(gx, gy),
+            // 몬스터도 이동불가 오브젝트를 뚫지 못하게 — 타일 차단 + 오브젝트 점유를 함께 본다
+            // (스폰 위치·넉백에도 같이 적용돼 바위 안에서 튀어나오거나 박히는 일이 없다)
+            hitsWall: (gx, gy) => this.hitsWall(gx, gy) || this.hitsSolidObject(gx, gy),
             groundR: () => this.map.groundRadius,
             attackPower: () => 1 + this.upgradeBonus('attack'),
             carryLimit: () => 10 + this.upgradeBonus('carry'),
@@ -857,6 +860,7 @@ export class IngameBootstrap extends Component {
             const node = this.objectNodes.get(id);
             if (node) node.active = false;
         }
+        this.rebuildSolidTiles(); // 숨긴 문은 더 이상 막지 않게
     }
 
     /** 열려 있는 동안 보유 골드·버튼 활성 상태 갱신 */
@@ -1332,18 +1336,32 @@ export class IngameBootstrap extends Component {
         return null;
     }
 
-    /** 플레이어 전용 오브젝트 점유 판정. walkable=true인 오브젝트는 통과한다. */
-    private hitsSolidObject(gx: number, gy: number): boolean {
-        const tx = Math.round(gx);
-        const ty = Math.round(gy);
+    /** 타일 → 캐시 키 (맵 한 변 기준 1차원 인덱스) */
+    private tileKey(gx: number, gy: number): number {
+        const R = this.map.groundRadius;
+        return (Math.round(gy) + R) * (R * 2 + 1) + (Math.round(gx) + R);
+    }
+
+    /**
+     * 이동불가 오브젝트 점유 타일 캐시 재생성 — 오브젝트 생성 직후, 그리고 게이트 해금으로
+     * 문 오브젝트를 숨긴 뒤에 호출한다 (숨겨진 오브젝트는 더 이상 막지 않아야 하므로).
+     */
+    private rebuildSolidTiles() {
+        this.solidTiles.clear();
         for (const object of this.map.objects ?? []) {
             if (object.walkable) continue;
-            // 게이트 해금으로 숨겨진(열린) 문 오브젝트는 더 이상 막지 않는다
             if (object.id && this.objectNodes.get(object.id)?.active === false) continue;
-            if (tx >= object.gx && tx < object.gx + object.w &&
-                ty >= object.gy && ty < object.gy + object.h) return true;
+            for (let x = object.gx; x < object.gx + object.w; x++) {
+                for (let y = object.gy; y < object.gy + object.h; y++) {
+                    this.solidTiles.add(this.tileKey(x, y));
+                }
+            }
         }
-        return false;
+    }
+
+    /** 오브젝트 점유 판정 — walkable=true인 오브젝트는 통과한다 (플레이어·몬스터 공통) */
+    private hitsSolidObject(gx: number, gy: number): boolean {
+        return this.solidTiles.has(this.tileKey(gx, gy));
     }
 
     /** 플레이어가 어느 존에 있는지 판정 — 밟고 있는 타일의 zone 속성 기반 */
@@ -1500,6 +1518,12 @@ export class IngameBootstrap extends Component {
     // ── 맵 오브젝트 (타일 단위 배치물 — 에디터 objects 루트) ──
     /** objectId → 노드 — 트리거가 연결된 오브젝트를 런타임에 조작(게이트 해금 시 문 숨김) */
     private objectNodes = new Map<string, Node>();
+    /**
+     * 이동불가 오브젝트가 점유한 타일 — 이동 판정용 캐시 (키 = 타일 인덱스).
+     * 몬스터까지 매 프레임 조회하므로 오브젝트 전수 순회는 비싸다. 게이트가 열려
+     * 오브젝트가 숨겨질 때만 다시 만든다.
+     */
+    private solidTiles = new Set<number>();
     /** 깊이 정렬용 오브젝트 발자국 — 매 프레임 플레이어 위치로 정렬키를 다시 계산한다 */
     private objectDepths: { node: Node; x0: number; y0: number; x1: number; y1: number }[] = [];
 
