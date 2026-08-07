@@ -134,6 +134,13 @@ export class CombatSystem {
     private fullLabel: Node | null = null;
     private fullT = 0;
     private sweatNode: Node | null = null; // 만재(공격 불가) 상태 표시 — 땀
+    /** 등짐 스택 현재 위치 — 기준점을 부드럽게 따라간다 (클립 전환 시 튐 방지 + 관성) */
+    private stackPos = { x: 0, y: 0 };
+    private stackPosSet = false;
+    /** 기준점 추종 시간상수(초, 임의) — 작을수록 몸에 딱 붙고, 클수록 늦게 따라와 무겁다 */
+    private static readonly STACK_FOLLOW_S = 0.09;
+    /** 이 거리(px)를 넘으면 추종 대신 즉시 이동 — 부활·구역 이동 등 순간이동 대응 */
+    private static readonly STACK_SNAP_PX = 80;
 
     private hp = BAL.player.maxHp;
     private invulnT = 0;
@@ -639,12 +646,24 @@ export class CombatSystem {
         // 쌓이기 시작하는 위치 = **등짐 기준점**. 애니메이션 프레임에 잡아둔 값이 있으면 그걸 쓰고
         // (걸음마다 등짐이 흔들리는 것까지 따라간다), 없으면 바라보는 방향의 반대쪽 기본값.
         const anchor = this.host.stackAnchor();
-        if (anchor) {
-            this.stackRoot.setPosition(anchor.x, anchor.y, 0);
+        const back = this.host.facing() === 'e' ? -20 : 20;
+        const tx = anchor ? anchor.x : back;
+        const ty = anchor ? anchor.y : 66;
+
+        // ⚠ 목표점으로 **부드럽게 따라간다**. 클립이 바뀌면 기준점이 순간이동하기 때문에
+        //   (정면 클립은 지게가 몸에 가려 중앙, 측면 클립은 왼/오른쪽 — 시점이 바뀌면 당연히 다르다)
+        //   그대로 대입하면 공격·방향 전환마다 짐이 튄다. 지수 추종이라 프레임률에 흔들리지 않고,
+        //   짐이 몸을 살짝 늦게 따라와 무게감도 붙는다 (BIBLE §3 관성).
+        if (!this.stackPosSet) {
+            this.stackPos.x = tx; this.stackPos.y = ty; this.stackPosSet = true;
+        } else if (Math.hypot(tx - this.stackPos.x, ty - this.stackPos.y) > CombatSystem.STACK_SNAP_PX) {
+            this.stackPos.x = tx; this.stackPos.y = ty; // 순간이동(부활·구역 이동)은 그냥 붙인다
         } else {
-            const back = this.host.facing() === 'e' ? -20 : 20;
-            this.stackRoot.setPosition(back, 66, 0);
+            const k = 1 - Math.exp(-dt / CombatSystem.STACK_FOLLOW_S);
+            this.stackPos.x += (tx - this.stackPos.x) * k;
+            this.stackPos.y += (ty - this.stackPos.y) * k;
         }
+        this.stackRoot.setPosition(this.stackPos.x, this.stackPos.y, 0);
         for (let i = 0; i < this.stackPieces.length; i++) {
             // 위로 갈수록 크게 흔들림(관성) — BIBLE §3
             const sway = Math.sin(this.time * BAL.stack.swaySpeed + i * 0.5)
