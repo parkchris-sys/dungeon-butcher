@@ -1521,15 +1521,20 @@ export class IngameBootstrap extends Component {
                 (p as unknown as { __sortY: number }).__sortY = isoY(o.gx, o.gy); // 초기값
             }
 
-            if (!o.floorDecal) { // 바닥 데칼은 그림자 없음(바닥에 붙음)
+            const scale = o.imgScale ?? 1;
+            const offX = o.imgOffX ?? 0, offY = o.imgOffY ?? 0;
+            const art = this.objFrames.get(o.img);
+
+            // 그림자는 **아트가 없을 때만** 그린다 (실루엣 폴백의 접지 표시용).
+            // ⚠ 아트에는 이미 그림자가 그려져 있고(아트 규약), 엔진 마름모는 발자국을
+            //   (w+h)/2 정사각 기준으로 만들기 때문에 3×1처럼 한쪽으로 긴 발자국에서는
+            //   실루엣 양옆으로 삐져나온다. 게다가 발자국 중심에 놓여 앞 꼭짓점에 선 아트와
+            //   어긋나 **그림자만 따로 밑에 보여 오브젝트가 떠 보인다**(실기 제보 2026-08-07).
+            if (!o.floorDecal && !art) {
                 const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
                     isoW * 0.95, isoH * 0.95, this.color('#000000', 90));
                 shadow.setPosition(0, 0, 0);
             }
-
-            const scale = o.imgScale ?? 1;
-            const offX = o.imgOffX ?? 0, offY = o.imgOffY ?? 0;
-            const art = this.objFrames.get(o.img);
             if (art) {
                 // 이미지 크기 = 원본×배율 (타일 크기와 무관). 하단 = 발자국 아래 꼭짓점(앵커) + offset
                 const bw = art.rect.width * scale, bh = art.rect.height * scale;
