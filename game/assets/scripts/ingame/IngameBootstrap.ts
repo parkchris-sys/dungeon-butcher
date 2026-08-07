@@ -100,10 +100,19 @@ export class IngameBootstrap extends Component {
     private triggerNpcs: TriggerNpc[] = []; // 손님(customer) NPC만 — 트리거·이동 시스템이 공유
     private npcTemplates: NpcTemplate[] = []; // 배치된 손님 NPC = 스폰 시 복제할 템플릿
     private hpBarRoot: Node | null = null;       // 캐릭터 머리 위 HP바 (사냥지대 한정)
-    /** 떠오르는 월드 팝업 (골드 "+N" · 데미지 숫자) — baseY 기준 상승 + 배율 이징 */
+    /**
+     * 월드 팝업 — 두 종류.
+     *  · 'rise'      골드 "+N": 위로 부드럽게 떠오름
+     *  · 'ballistic' 데미지 숫자: 때린 방향으로 포물선 + 바닥 1회 바운스 (무게감)
+     */
     private popups: {
-        node: Node; t: number; life: number; baseY: number; rise: number;
-        s0: number; s1: number; fadeAt: number; // fadeAt: 페이드 시작 진행률(0~1)
+        kind: 'rise' | 'ballistic';
+        node: Node; t: number; life: number;
+        fadeAt: number;           // 페이드 시작 진행률(0~1)
+        baseY: number; rise: number;                  // rise 전용
+        x: number; y: number; vx: number; vy: number; // ballistic 전용 (화면 px, +y=위)
+        grav: number; groundY: number; bounced: boolean;
+        s0: number; s1: number; popS: number;         // 등장 배율 이징 (popS초 동안)
     }[] = [];
     /** 데미지 이미지 폰트 — 문자('0'~'9') → 글리프 (resources/fonts/dmg_*.png) */
     private dmgFrames = new Map<string, SpriteFrame>();
@@ -840,19 +849,31 @@ export class IngameBootstrap extends Component {
         lb.isBold = true;
         lb.cacheMode = Label.CacheMode.BITMAP; // 실기기 글리프 겹침 방지
         lb.color = this.color('#F0B429');
-        this.popups.push({ node, t: 0, life: 0.9, baseY: node.position.y, rise: 54, s0: 1, s1: 1, fadeAt: 0 });
+        this.popups.push({
+            kind: 'rise', node, t: 0, life: 0.9, fadeAt: 0,
+            baseY: node.position.y, rise: 54,
+            x: 0, y: 0, vx: 0, vy: 0, grav: 0, groundY: 0, bounced: false,
+            s0: 1, s1: 1, popS: 1,
+        });
     }
 
-    /** 데미지 숫자 높이(px) · 상승 거리 · 시작/끝 배율 · 지속시간 — 전부 (임의) */
-    private static readonly DMG_PX = 40;
-    private static readonly DMG_RISE = 95;
-    private static readonly DMG_S0 = 0.45;
-    private static readonly DMG_S1 = 1.35;
-    private static readonly DMG_LIFE = 0.6;
+    /** 데미지 숫자 연출 수치 — 전부 (임의) */
+    private static readonly DMG_PX = 40;      // 글자 높이
+    private static readonly DMG_RISE = 20;    // 튀어오르는 높이 (이 값으로 초기 상승속도를 만든다)
+    private static readonly DMG_GRAV = 1800;  // 중력 — 크면 짧고 야무지게 떨어진다
+    private static readonly DMG_VX = 110;     // 때린 방향 수평 속도
+    private static readonly DMG_BOUNCE = 0.4; // 바닥 반발 계수 (한 번만 튄다)
+    private static readonly DMG_S0 = 0.5;     // 등장 배율 시작
+    private static readonly DMG_S1 = 1.3;     // 등장 배율 끝
+    private static readonly DMG_POP_S = 0.14; // 배율이 다 커지는 시간 — 짧아야 "빡" 한다
+    private static readonly DMG_LIFE = 0.8;
 
     /**
      * 데미지 표기 — **이미지 폰트**(resources/fonts/dmg_*)로 숫자만 찍는다 (요청 2026-08-07).
-     * 연출: 피격 지점에서 위로 떠오르며 **아웃 이징으로 빡 커진다**(리니어면 맛이 안 산다).
+     *
+     * 연출: **피격될 법한 높이(몬스터 몸통)에서 시작**해 등장 순간 배율이 빡 커지고(아웃 이징),
+     * **때린 방향(플레이어→몬스터)으로 포물선을 그리며 날아가** 바닥에서 **한 번 튕긴 뒤** 멈춘다.
+     * 무게감이 목적이라 중력·반발로 처리한다 (이징 곡선으로는 튕김이 안 나온다).
      * 폰트가 아직 없으면 시스템 폰트 라벨로 폴백.
      */
     private showDamage(amount: number, gx: number, gy: number) {
@@ -891,27 +912,53 @@ export class IngameBootstrap extends Component {
             lb.color = this.color('#E8342B');
         }
         node.setScale(IngameBootstrap.DMG_S0, IngameBootstrap.DMG_S0, 1);
+
+        // 때린 방향 = 플레이어 → 몬스터 (화면 x 성분만 — 포물선을 깨끗하게 유지)
+        const pp = this.player.position;
+        const dirX = x - pp.x;
+        const ux = Math.abs(dirX) < 1 ? 0 : Math.sign(dirX);
         this.popups.push({
-            node, t: 0, life: IngameBootstrap.DMG_LIFE, baseY: y, rise: IngameBootstrap.DMG_RISE,
-            s0: IngameBootstrap.DMG_S0, s1: IngameBootstrap.DMG_S1, fadeAt: 0.6,
+            kind: 'ballistic', node, t: 0, life: IngameBootstrap.DMG_LIFE, fadeAt: 0.72,
+            baseY: y, rise: 0,
+            x, y,
+            vx: IngameBootstrap.DMG_VX * ux,
+            // 정확히 DMG_RISE만큼 솟는 초기 속도: v = √(2gh)
+            vy: Math.sqrt(2 * IngameBootstrap.DMG_GRAV * IngameBootstrap.DMG_RISE),
+            grav: IngameBootstrap.DMG_GRAV,
+            groundY: isoY(gx, gy) + 6, // 바닥 = 몬스터 발밑 라인
+            bounced: false,
+            s0: IngameBootstrap.DMG_S0, s1: IngameBootstrap.DMG_S1, popS: IngameBootstrap.DMG_POP_S,
         });
     }
 
-    /**
-     * 떠오르는 팝업 갱신 (골드 "+N" · 데미지 숫자 공용).
-     * 이징은 둘 다 **아웃 계열** — 처음에 확 튀고 뒤로 갈수록 느려져야 타격감이 산다.
-     *  · 위치: out-sine (부드럽게 떠오름)  · 배율: out-quart (빡 커짐)
-     */
+    /** 월드 팝업 갱신 — 골드는 상승, 데미지는 포물선 + 바운스 */
     private updatePopups(dt: number) {
         for (let i = this.popups.length - 1; i >= 0; i--) {
             const g = this.popups[i];
             g.t += dt;
             const p = Math.min(1, g.t / g.life);
-            const easeOutSine = Math.sin((p * Math.PI) / 2);
-            const easeOutQuart = 1 - Math.pow(1 - p, 4);
-            g.node.setPosition(g.node.position.x, g.baseY + g.rise * easeOutSine, 0);
+            if (g.kind === 'rise') {
+                g.node.setPosition(g.node.position.x, g.baseY + g.rise * Math.sin((p * Math.PI) / 2), 0);
+            } else {
+                g.vy -= g.grav * dt;
+                g.x += g.vx * dt;
+                g.y += g.vy * dt;
+                if (g.y <= g.groundY && g.vy < 0) {
+                    g.y = g.groundY;
+                    if (g.bounced) {
+                        g.vy = 0; g.vx = 0;               // 두 번째 접촉은 그대로 눕는다
+                    } else {
+                        g.vy = -g.vy * IngameBootstrap.DMG_BOUNCE; // 한 번만 튕김 (무게감)
+                        g.vx *= 0.55;                     // 마찰로 앞으로 덜 나감
+                        g.bounced = true;
+                    }
+                }
+                g.node.setPosition(g.x, g.y, 0);
+            }
+            // 등장 배율 — 짧은 구간에 out-quart로 "빡" (리니어면 맛이 안 산다)
             if (g.s0 !== g.s1) {
-                const s = g.s0 + (g.s1 - g.s0) * easeOutQuart;
+                const k = Math.min(1, g.t / g.popS);
+                const s = g.s0 + (g.s1 - g.s0) * (1 - Math.pow(1 - k, 4));
                 g.node.setScale(s, s, 1);
             }
             const op = g.node.getComponent(UIOpacity) ?? g.node.addComponent(UIOpacity);
