@@ -119,6 +119,14 @@ export interface MapRegionInfo {
     floorScale?: number; // 이미지 배율 (기본 1 — 원본 픽셀 크기 기준)
     floorOffX?: number;  // 화면 X offset(px) — 구역 중심 기준 (아이소 화면 좌표)
     floorOffY?: number;  // 화면 Y offset(px)
+    /**
+     * 덮개(안개) 이미지 — 플레이어가 멀리 있는 동안 이 구역을 가린다 (2026-08-07).
+     * `resources/maps/covers/{ID}_{이름}.png`의 ID. **0/없음이면 단색 안개**로 덮는다.
+     * 가까워지면 서서히 걷히고, 구역 안에 들어서면 완전히 사라진다.
+     */
+    coverImg?: number;
+    /** 덮개를 쓰지 않는 구역 (마을처럼 항상 보여야 하는 곳) */
+    noCover?: boolean;
 }
 
 /** 타일 속성 번호 — 기획 확정 시 표로 이관 (임의) */

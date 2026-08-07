@@ -943,6 +943,8 @@ export class MapEditRoot extends Component {
             tr.floorScale = r.floorScale ?? 1;
             tr.floorOffX = r.floorOffX ?? 0;
             tr.floorOffY = r.floorOffY ?? 0;
+            tr.coverImg = r.coverImg ?? 0;
+            tr.noCover = r.noCover ?? false;
             this.ensurePropsGroup(n);
         }
         console.log(`[MapEditRoot] 구역 복원: ${list.length}개 (데이터 저장분)`);
@@ -1082,6 +1084,8 @@ export class MapEditRoot extends Component {
                 floorScale: tr.floorImg ? tr.floorScale : undefined,
                 floorOffX: tr.floorImg ? tr.floorOffX : undefined,
                 floorOffY: tr.floorImg ? tr.floorOffY : undefined,
+                coverImg: tr.coverImg || undefined,
+                noCover: tr.noCover || undefined,
             });
         }
         // 지역 ID 검증 — 모든 지역은 고유 ID (중복·미지정은 경고)

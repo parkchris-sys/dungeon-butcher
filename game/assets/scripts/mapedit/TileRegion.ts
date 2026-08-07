@@ -34,4 +34,14 @@ export class TileRegion extends Component {
 
     @property({ type: CCInteger, tooltip: '바닥 이미지 Y offset(px) — 구역 중심 기준으로 상하 미세 조정' })
     floorOffY = 0;
+
+    @property({
+        type: CCInteger,
+        tooltip: '덮개(안개) 이미지 ID — resources/maps/covers/{ID}_{이름}.png (0=단색 안개).\n'
+            + '플레이어가 멀리 있는 동안 이 구역을 가립니다. 가까워지면 서서히 걷힙니다.',
+    })
+    coverImg = 0;
+
+    @property({ tooltip: '체크 = 이 구역은 덮지 않는다 (마을처럼 항상 보여야 하는 곳)' })
+    noCover = false;
 }

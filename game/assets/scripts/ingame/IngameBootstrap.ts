@@ -184,6 +184,13 @@ export class IngameBootstrap extends Component {
     private playerAttackFacing: Dir8 = 'e'; // 공격 시작 시 방향 고정
     /** 구역 통짜 바닥 이미지 스프라이트 + 컬링용 화면 bbox (world 좌표) */
     private floorSprites: { node: Node; x: number; y: number; hw: number; hh: number }[] = [];
+    /** 구역 덮개(안개) — 멀리 있는 구역을 가린다. alpha는 현재 불투명도(목표값을 부드럽게 추종) */
+    private coverSprites: {
+        node: Node; op: UIOpacity; x: number; y: number; hw: number; hh: number;
+        gx: number; gy: number; w: number; h: number; alpha: number;
+    }[] = [];
+    /** 덮개 이미지 (resources/maps/covers) — ID → 프레임. 없으면 단색 안개 */
+    private coverFrames = new Map<number, SpriteFrame>();
 
     /**
      * 아트 텍스처 로드 — 없는 것은 조용히 폴백.
@@ -191,7 +198,7 @@ export class IngameBootstrap extends Component {
      * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
      */
     private loadZoneTextures(done: () => void) {
-        let pending = 8; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 + 애니메이션(클립·프레임) + 데미지 폰트
+        let pending = 9; // 플레이어 잡 + 바닥·오브젝트·유닛·기분·덮개 폴더 + 애니메이션(클립·프레임) + 데미지 폰트
 
         const playerJobs: [string, (f: SpriteFrame) => void][] = [
             ['chars/player_left',  f => { this.playerFrames.left = f; }],
@@ -226,6 +233,7 @@ export class IngameBootstrap extends Component {
         scanDir('maps/objs', this.objFrames);
         scanDir('maps/units', this.unitFrames);
         scanDir('maps/moods', this.moodFrames);
+        scanDir('maps/covers', this.coverFrames);
 
         // 애니메이션 클립 정의 (편집 씬이 내보낸 JSON) — 없으면 정적 이미지 폴백
         resources.load('anim/animdata', JsonAsset, (err, asset) => {
@@ -352,6 +360,9 @@ export class IngameBootstrap extends Component {
         this.pgx = this.map.playerSpawn.gx;
         this.pgy = this.map.playerSpawn.gy;
         this.player = this.buildPlayer(this.entities);
+
+        // 덮개는 **world의 마지막 자식** — 바닥·오브젝트·몬스터를 모두 덮어야 한다
+        this.buildCovers(this.world);
 
         this.buildZoneBanner();
         this.buildJoystick();
@@ -1201,6 +1212,7 @@ export class IngameBootstrap extends Component {
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
+        this.updateCovers(dt);
         this.updatePopups(dt);
         this.updateGatePopup();    // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
         this.updateUpgradePopup(); // 강화 발판 위면 강화 팝업 (§10-b)
@@ -1366,6 +1378,77 @@ export class IngameBootstrap extends Component {
     }
 
     /** 화면 밖 바닥 이미지는 그리지 않음 — 뷰포트 사각형과 교차하는 것만 활성 */
+    /** 덮개(안개) 수치 — 전부 (임의). 통로 길이에 맞춰 조정하면 된다 */
+    private static readonly COVER_NEAR = 1.5;   // 이 거리(타일) 안이면 완전히 걷힘
+    private static readonly COVER_FAR = 7;      // 이 거리 밖이면 완전히 덮임
+    private static readonly COVER_ALPHA = 255;  // 최대 불투명도 (낮추면 실루엣이 비친다)
+    private static readonly COVER_FADE_S = 0.35; // 걷히는/덮이는 속도 (지수 추종 시간상수)
+
+    /**
+     * 구역 덮개(안개) — **마을에 있을 때 던전이 보이지 않게** 가린다 (요청 2026-08-07).
+     * 바닥·오브젝트·몬스터를 전부 덮어야 하므로 world의 **마지막 자식**으로 둔다
+     * (entities보다 뒤 = 위에 그려짐). 플레이어가 있는 구역은 항상 걷혀 있어서 자기 몸은 안 가려진다.
+     * 아트가 `maps/covers/{ID}_{이름}.png`를 넣고 구역 `coverImg`를 지정하면 그 그림으로,
+     * 없으면 단색 안개로 덮는다.
+     */
+    private buildCovers(parent: Node) {
+        this.coverSprites = [];
+        const regions = this.map.regions ?? [];
+        if (regions.length === 0) return;
+        const covers = this.makeNode('Covers', parent);
+        for (const r of regions) {
+            if (r.noCover) continue;
+            const cx = r.gx + (r.w - 1) / 2, cy = r.gy + (r.h - 1) / 2;
+            const x = isoX(cx, cy) + (r.floorOffX ?? 0);
+            const y = isoY(cx, cy) + (r.floorOffY ?? 0);
+            // 덮개는 바닥과 같은 자리·같은 크기 (바닥 이미지가 있으면 그 크기, 없으면 구역 크기)
+            const floor = r.floorImg ? this.floorFrames.get(r.floorImg) : undefined;
+            const scale = r.floorScale ?? 1;
+            const w = floor ? floor.rect.width * scale : (r.w + r.h) * TILE_W / 2;
+            const h = floor ? floor.rect.height * scale : (r.w + r.h) * TILE_H / 2;
+            const art = r.coverImg ? this.coverFrames.get(r.coverImg) : undefined;
+            const node = this.addSprite(`cover_${r.name}`, covers, art ?? this.diamondFrame(),
+                w, h, this.color(art ? '#FFFFFF' : IngameBootstrap.FOG_HEX));
+            node.setPosition(x, y, 0);
+            const op = node.addComponent(UIOpacity);
+            op.opacity = IngameBootstrap.COVER_ALPHA;
+            this.coverSprites.push({
+                node, op, x, y, hw: w / 2, hh: h / 2,
+                gx: r.gx, gy: r.gy, w: r.w, h: r.h, alpha: IngameBootstrap.COVER_ALPHA,
+            });
+        }
+    }
+
+    /** 단색 안개 색 (임의) — 아트가 덮개 이미지를 주면 안 쓰인다 */
+    private static readonly FOG_HEX = '#1A1726';
+
+    /**
+     * 덮개 갱신 — 플레이어와 구역 사각형의 거리로 목표 불투명도를 정하고 부드럽게 따라간다.
+     * 통로를 지나가는 동안 자연히 서서히 걷힌다 (거리가 줄어드니까).
+     */
+    private updateCovers(dt: number) {
+        if (this.coverSprites.length === 0) return;
+        const NEAR = IngameBootstrap.COVER_NEAR, FAR = IngameBootstrap.COVER_FAR;
+        const k = 1 - Math.exp(-dt / IngameBootstrap.COVER_FADE_S);
+        for (const c of this.coverSprites) {
+            // 구역 사각형까지의 거리 (타일) — 안에 있으면 0
+            const dx = Math.max(c.gx - this.pgx, 0, this.pgx - (c.gx + c.w - 1));
+            const dy = Math.max(c.gy - this.pgy, 0, this.pgy - (c.gy + c.h - 1));
+            const dist = Math.hypot(dx, dy);
+            const t = math.clamp((dist - NEAR) / (FAR - NEAR), 0, 1);
+            const target = t * IngameBootstrap.COVER_ALPHA;
+            c.alpha += (target - c.alpha) * k;
+            const a = Math.round(c.alpha);
+            if (c.op.opacity !== a) c.op.opacity = a;
+            // 완전히 걷힌 덮개는 그리지 않는다 + 화면 밖 컬링 (바닥과 동일 기준)
+            const vs = view.getVisibleSize();
+            const visible = a > 1
+                && Math.abs(c.x - isoX(this.pgx, this.pgy)) <= vs.width / 2 / this.zoom + TILE_W + c.hw
+                && Math.abs(c.y - isoY(this.pgx, this.pgy)) <= vs.height / 2 / this.zoom + TILE_H + c.hh;
+            if (c.node.active !== visible) c.node.active = visible;
+        }
+    }
+
     private updateFloorCulling() {
         if (this.floorSprites.length === 0) return;
         const vs = view.getVisibleSize();
