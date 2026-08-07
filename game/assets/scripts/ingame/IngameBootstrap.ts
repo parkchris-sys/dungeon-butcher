@@ -247,7 +247,9 @@ export class IngameBootstrap extends Component {
             if (!err && frames) {
                 for (const f of frames) {
                     const m = f.name.match(/^dmg_(\d)$/);
-                    if (m) this.dmgFrames.set(m[1], f);
+                    if (!m) continue;
+                    IngameBootstrap.pixelate(f); // 폰트도 픽셀아트 (하드 에지)
+                    this.dmgFrames.set(m[1], f);
                 }
             }
             if (--pending === 0) done();
