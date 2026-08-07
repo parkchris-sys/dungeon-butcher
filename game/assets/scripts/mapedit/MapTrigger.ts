@@ -8,6 +8,14 @@ import { TILE_W, TILE_H } from '../ingame/Projection';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 const B = 32;
+const ISO_K = 1 / (2 * Math.SQRT2); // 게임 px → 에디터 표시 크기 (MapObject와 동일 기준)
+
+/** 자원 미리보기 색 — 런타임 RES_COLOR와 같은 값 (생고기/요리/돈) */
+const ITEM_PREVIEW_COLOR: Record<number, string> = {
+    0: '#C0503F', // 생고기
+    1: '#E7A33E', // 요리
+    2: '#F0B429', // 돈
+};
 const TRIGGER_MAX = 16;
 
 export enum MapTriggerKind {
@@ -175,34 +183,60 @@ export class MapTrigger extends Component {
     }
 
     /**
-     * 자원이 놓이는 지점 표시 — 파란 십자가. 게임의 `itemOffX/itemOffY`와 같은 자리를 가리킨다.
-     * 화면 px offset을 청사진 좌표로 되돌려 찍는다(게임 isoX/isoY 정렬과 동일한 환산):
+     * 자원이 놓이는 지점 미리보기 — **게임에서 쌓일 자원 3개를 실제 크기로** 그려 준다.
+     * 십자가만 있으면 표면 높이를 맞추기 어렵기 때문에, 런타임과 같은 규격(28×16px,
+     * 첫 조각 +12, 이후 10px 간격)으로 찍어 오브젝트 그림 위에 얹어 보며 조정할 수 있다.
+     *
+     * 좌표 환산: 화면 px offset → 청사진 좌표 (게임 isoX/isoY 정렬과 동일)
      *   offGx = x/TILE_W + y/TILE_H,  offGy = -x/TILE_W + y/TILE_H
+     * 미리보기 노드는 오브젝트 그림과 같은 역보정(-45°, y 2배)을 걸어 업라이트로 보이게 하고,
+     * 그 안에서는 게임 px × ISO_K 로 크기·간격을 쓴다.
      */
     private refreshItemMark(frame: SpriteFrame | null) {
         let mark = this.node.getChildByName('_itemMark');
-        if (!frame || (!this.itemOffX && !this.itemOffY)) {
-            if (mark) mark.active = false;
-            return;
-        }
+        if (!frame) { if (mark) mark.active = false; return; }
         if (!mark) {
             mark = new Node('_itemMark');
             mark.hideFlags = CCObject.Flags.DontSave;
             mark.layer = Layers.Enum.UI_2D;
             this.node.addChild(mark);
-            const bar = (name: string, w: number, h: number) => {
+            mark.angle = -45;            // MapRoot의 +45 상쇄 → 업라이트
+            mark.setScale(1, 2, 1);      // _isoview scaleY 0.5 상쇄
+            const quad = (name: string, w: number, h: number, y: number, color: Color) => {
                 const n = new Node(name);
                 n.hideFlags = CCObject.Flags.DontSave;
                 n.layer = Layers.Enum.UI_2D;
                 mark!.addChild(n);
-                n.addComponent(UITransform).setContentSize(w, h);
+                n.addComponent(UITransform).setContentSize(w * ISO_K, h * ISO_K);
+                n.setPosition(0, y * ISO_K, 0);
                 const sp = n.addComponent(Sprite);
                 sp.sizeMode = Sprite.SizeMode.CUSTOM;
                 sp.spriteFrame = frame;
-                sp.color = new Color(90, 170, 255, 235);
+                sp.color = color;
             };
-            bar('H', 14, 2);
-            bar('V', 2, 14);
+            // 놓이는 지점 자체 (파란 십자) — 표면 접점 확인용
+            quad('anchorH', 40, 3, 0, new Color(90, 170, 255, 235));
+            // 쌓일 자원 3개 — 런타임과 같은 규격
+            const c = ITEM_PREVIEW_COLOR[this.resource] ?? '#E7A33E';
+            const col = new Color();
+            Color.fromHEX(col, c);
+            for (let i = 0; i < 3; i++) {
+                const cc = col.clone();
+                cc.a = 210 - i * 45; // 위로 갈수록 흐리게 — 미리보기임을 알 수 있게
+                quad(`item${i}`, 28, 16, 12 + i * 10, cc);
+            }
+        } else {
+            // 색만 갱신 (resource를 바꿨을 때)
+            const c = ITEM_PREVIEW_COLOR[this.resource] ?? '#E7A33E';
+            for (let i = 0; i < 3; i++) {
+                const n = mark.getChildByName(`item${i}`);
+                const sp = n?.getComponent(Sprite);
+                if (!sp) continue;
+                const col = new Color();
+                Color.fromHEX(col, c);
+                col.a = 210 - i * 45;
+                sp.color = col;
+            }
         }
         mark.active = true;
         const offGx = this.itemOffX / TILE_W + this.itemOffY / TILE_H;
