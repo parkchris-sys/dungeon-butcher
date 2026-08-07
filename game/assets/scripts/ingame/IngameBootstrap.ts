@@ -1378,11 +1378,9 @@ export class IngameBootstrap extends Component {
     }
 
     /** 화면 밖 바닥 이미지는 그리지 않음 — 뷰포트 사각형과 교차하는 것만 활성 */
-    /** 덮개(안개) 수치 — 전부 (임의). 통로 길이에 맞춰 조정하면 된다 */
-    private static readonly COVER_NEAR = 1.5;   // 이 거리(타일) 안이면 완전히 걷힘
-    private static readonly COVER_FAR = 7;      // 이 거리 밖이면 완전히 덮임
+    /** 덮개(안개) 수치 — 전부 (임의) */
     private static readonly COVER_ALPHA = 255;  // 최대 불투명도 (낮추면 실루엣이 비친다)
-    private static readonly COVER_FADE_S = 0.35; // 걷히는/덮이는 속도 (지수 추종 시간상수)
+    private static readonly COVER_FADE_S = 0.5; // 걷히는/덮이는 속도 (지수 추종 시간상수)
 
     /**
      * 구역 덮개(안개) — **마을에 있을 때 던전이 보이지 않게** 가린다 (요청 2026-08-07).
@@ -1399,6 +1397,9 @@ export class IngameBootstrap extends Component {
         for (const r of regions) {
             if (r.noCover) continue;
             const cx = r.gx + (r.w - 1) / 2, cy = r.gy + (r.h - 1) / 2;
+            // 통로 구역은 덮지 않는다 — 들어가야 할 길이 안 보이면 진입 자체가 막막해진다.
+            // (걷히는 **시작 조건**이 "통로에 서 있을 때"이므로 통로는 늘 보여야 한다)
+            if (this.zoneKindAt(Math.round(cx), Math.round(cy)) === 'corridor') continue;
             const x = isoX(cx, cy) + (r.floorOffX ?? 0);
             const y = isoY(cx, cy) + (r.floorOffY ?? 0);
             // 덮개는 바닥과 같은 자리·같은 크기 (바닥 이미지가 있으면 그 크기, 없으면 구역 크기)
@@ -1423,20 +1424,22 @@ export class IngameBootstrap extends Component {
     private static readonly FOG_HEX = '#1A1726';
 
     /**
-     * 덮개 갱신 — 플레이어와 구역 사각형의 거리로 목표 불투명도를 정하고 부드럽게 따라간다.
-     * 통로를 지나가는 동안 자연히 서서히 걷힌다 (거리가 줄어드니까).
+     * 덮개 갱신 — **걷히기 시작하는 조건은 "플레이어가 통로에 있을 때"** (요청 2026-08-07).
+     *
+     * 목표 불투명도는 이분법(0 또는 최대)이고, 실제로 보이는 건 0.5초 지수 추종이라
+     * 통로에 들어선 순간부터 서서히 걷히고 통로를 건너는 동안 다 걷힌다.
+     * ⚠ 거리 비례로 하면 안 된다 — 통로가 4타일(2×2)뿐이라 거리로는 사실상 즉시 걷힌다.
      */
     private updateCovers(dt: number) {
         if (this.coverSprites.length === 0) return;
-        const NEAR = IngameBootstrap.COVER_NEAR, FAR = IngameBootstrap.COVER_FAR;
         const k = 1 - Math.exp(-dt / IngameBootstrap.COVER_FADE_S);
+        // 통로에 서 있으면 양쪽(마을·던전)이 함께 걷힌다 — 통로가 조망 지점이 된다
+        const onCorridor = this.zoneKindAt(this.pgx, this.pgy) === 'corridor';
         for (const c of this.coverSprites) {
-            // 구역 사각형까지의 거리 (타일) — 안에 있으면 0
-            const dx = Math.max(c.gx - this.pgx, 0, this.pgx - (c.gx + c.w - 1));
-            const dy = Math.max(c.gy - this.pgy, 0, this.pgy - (c.gy + c.h - 1));
-            const dist = Math.hypot(dx, dy);
-            const t = math.clamp((dist - NEAR) / (FAR - NEAR), 0, 1);
-            const target = t * IngameBootstrap.COVER_ALPHA;
+            // 이 구역 안에 있는지 (사각형 판정)
+            const inside = this.pgx >= c.gx && this.pgx <= c.gx + c.w - 1
+                && this.pgy >= c.gy && this.pgy <= c.gy + c.h - 1;
+            const target = (inside || onCorridor) ? 0 : IngameBootstrap.COVER_ALPHA;
             c.alpha += (target - c.alpha) * k;
             const a = Math.round(c.alpha);
             if (c.op.opacity !== a) c.op.opacity = a;
