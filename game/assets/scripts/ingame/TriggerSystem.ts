@@ -179,7 +179,7 @@ export class TriggerSystem {
         this.reflow(source, source.raw);
         source.timer = 0;
         source.working = false;
-        const start = this.center(source.def);
+        const start = this.itemPoint(source.def);
         this.fly('CookedFood', start.x, start.y + 22, target, '#E7A33E', start.y - 1, () => {
             this.pushItem(target, target.cooked, 'CookedFood', '#E7A33E');
         });
@@ -197,7 +197,7 @@ export class TriggerSystem {
         food?.destroy();
         customer.served = true;
         source.timer = TRANSFER_S;
-        const start = this.center(source.def);
+        const start = this.itemPoint(source.def);
         this.flyToPoint('ServedFood', start.x, start.y + 22,
             customer.node.position.x, customer.node.position.y + 70, '#E7A33E', start.y - 1, () => {
                 customer.state = 'satisfied';
@@ -238,7 +238,7 @@ export class TriggerSystem {
                 // 돈은 등에 지지 않고 골드로 즉시 편입
                 stack.pop()!.destroy();
                 t.timer = TRANSFER_S;
-                const start = this.center(t.def);
+                const start = this.itemPoint(t.def);
                 const p = this.host.playerNode().position;
                 this.flyToPoint('Res_money', start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {
                     this.host.addGold(1);
@@ -249,7 +249,7 @@ export class TriggerSystem {
             stack.pop()!.destroy();
             this.reflow(t, stack);
             t.timer = TRANSFER_S;
-            const start = this.center(t.def);
+            const start = this.itemPoint(t.def);
             const p = this.host.playerNode().position;
             this.flyToPoint(`Res_${kind}`, start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {});
         }
@@ -451,25 +451,36 @@ export class TriggerSystem {
         return { x: isoX(gx, gy), y: isoY(gx, gy) };
     }
 
+    /**
+     * 자원이 놓이는 지점 — 트리거 중심 + `itemOffX/itemOffY`.
+     * 가판대·그릴 표면 위에 올려진 것처럼 보이게 하려고 디자이너가 offset을 잡는다.
+     * ⚠ 정렬 깊이는 **offset을 뺀 타일 중심** 기준으로 유지한다 — 위로 올린 만큼 앞으로
+     *   튀어나오면 안 되기 때문(오브젝트보다 살짝 앞이면 충분).
+     */
+    private itemPoint(def: MapTriggerDef): { x: number; y: number; sortY: number } {
+        const c = this.center(def);
+        return { x: c.x + (def.itemOffX ?? 0), y: c.y + (def.itemOffY ?? 0), sortY: c.y - 1 };
+    }
+
     private pushItem(owner: RuntimeTrigger, stack: Node[], name: string, color: string) {
-        const center = this.center(owner.def);
+        const center = this.itemPoint(owner.def);
         const node = this.host.ui.addSprite(name, this.host.entities, this.host.ui.square(),
             28, 16, this.host.ui.color(color));
         node.setPosition(center.x, center.y + 12 + stack.length * 10, 0);
         // 트리거 타일 위 아이템은 링크된 영역 오브젝트보다 앞에 그려지게 — 정렬 깊이를 타일보다 살짝 앞으로
-        (node as unknown as { __sortY: number }).__sortY = center.y - 1;
+        (node as unknown as { __sortY: number }).__sortY = center.sortY;
         stack.push(node);
     }
 
     private reflow(owner: RuntimeTrigger, stack: Node[]) {
-        const center = this.center(owner.def);
+        const center = this.itemPoint(owner.def);
         for (let i = 0; i < stack.length; i++) {
             stack[i].setPosition(center.x, center.y + 12 + i * 10, 0);
         }
     }
 
     private fly(name: string, sx: number, sy: number, target: RuntimeTrigger, color: string, srcSortY: number, done: () => void) {
-        const end = this.center(target.def);
+        const end = this.itemPoint(target.def);
         this.flyToPoint(name, sx, sy, end.x, end.y + 22, color, srcSortY, done);
     }
 

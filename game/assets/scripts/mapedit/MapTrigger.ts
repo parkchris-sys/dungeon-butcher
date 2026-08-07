@@ -1,9 +1,10 @@
 import {
-    _decorator, Component, Sprite, UITransform, Color,
-    CCInteger, Enum,
+    _decorator, Component, Sprite, SpriteFrame, UITransform, Color,
+    CCInteger, Enum, Node, Layers, CCObject,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import { TriggerType, ResourceKind, UpgradeKind } from '../ingame/MapData';
+import { TILE_W, TILE_H } from '../ingame/Projection';
 
 const { ccclass, property, executeInEditMode } = _decorator;
 const B = 32;
@@ -137,6 +138,17 @@ export class MapTrigger extends Component {
     @property({ type: Enum(MapUpgradeKind), tooltip: '강화 발판 전용: 강화 종류\n공격력(무기손질대) / 이동속도(신발정비대) / 운반(운반구공방)' })
     upgradeKind = MapUpgradeKind.공격력;
 
+    @property({
+        type: CCInteger,
+        tooltip: '쌓이는 자원의 놓이는 지점 X offset(px) — 트리거 타일 중심 기준.\n'
+            + '기본(0,0)은 바닥에 놓인 것처럼 보인다. 가판대·그릴 표면 위에 올려진 것처럼\n'
+            + '보이려면 그 높이만큼 Y를 올려 잡는다. 날아오는 아이템 도착 지점도 같이 따라간다.',
+    })
+    itemOffX = 0;
+
+    @property({ type: CCInteger, tooltip: '쌓이는 자원의 놓이는 지점 Y offset(px) — 위쪽이 +. 파란 십자가로 표시된다' })
+    itemOffY = 0;
+
     update() {
         if (!EDITOR) return;
         this.tileW = Math.min(TRIGGER_MAX, Math.max(1, Math.round(this.tileW)));
@@ -159,5 +171,42 @@ export class MapTrigger extends Component {
             color.a = 95;
             sprite.color = color;
         }
+        this.refreshItemMark(sprite?.spriteFrame ?? null);
+    }
+
+    /**
+     * 자원이 놓이는 지점 표시 — 파란 십자가. 게임의 `itemOffX/itemOffY`와 같은 자리를 가리킨다.
+     * 화면 px offset을 청사진 좌표로 되돌려 찍는다(게임 isoX/isoY 정렬과 동일한 환산):
+     *   offGx = x/TILE_W + y/TILE_H,  offGy = -x/TILE_W + y/TILE_H
+     */
+    private refreshItemMark(frame: SpriteFrame | null) {
+        let mark = this.node.getChildByName('_itemMark');
+        if (!frame || (!this.itemOffX && !this.itemOffY)) {
+            if (mark) mark.active = false;
+            return;
+        }
+        if (!mark) {
+            mark = new Node('_itemMark');
+            mark.hideFlags = CCObject.Flags.DontSave;
+            mark.layer = Layers.Enum.UI_2D;
+            this.node.addChild(mark);
+            const bar = (name: string, w: number, h: number) => {
+                const n = new Node(name);
+                n.hideFlags = CCObject.Flags.DontSave;
+                n.layer = Layers.Enum.UI_2D;
+                mark!.addChild(n);
+                n.addComponent(UITransform).setContentSize(w, h);
+                const sp = n.addComponent(Sprite);
+                sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                sp.spriteFrame = frame;
+                sp.color = new Color(90, 170, 255, 235);
+            };
+            bar('H', 14, 2);
+            bar('V', 2, 14);
+        }
+        mark.active = true;
+        const offGx = this.itemOffX / TILE_W + this.itemOffY / TILE_H;
+        const offGy = -this.itemOffX / TILE_W + this.itemOffY / TILE_H;
+        mark.setPosition(offGx * B, offGy * B, 0);
     }
 }

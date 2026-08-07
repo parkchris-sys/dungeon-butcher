@@ -102,6 +102,14 @@ export interface MapTriggerDef {
     targetRegionId?: number; // 목적지 지역 ID — 팝업에 그 지역 이름을 표시 (0=이름 미표시)
     unlockCost?: number;     // 해금 비용(골드). 0 = 무료 통과(튜토리얼 게이트) — 비용값은 기획 TBD
     upgradeKind?: UpgradeKind; // upgrade 전용: 강화 종류 (기본 attack)
+    /**
+     * 쌓이는 자원의 놓이는 지점 offset (화면 px, 2026-08-07).
+     * 기본은 트리거 타일 중심이라 자원이 **바닥에** 놓인 것처럼 보인다. 가판대·그릴처럼
+     * 오브젝트 **표면 위**에 올려진 것처럼 보이려면 그 높이만큼 위로 올려 잡으면 된다.
+     * 날아오는 아이템의 도착 지점도 같이 따라간다.
+     */
+    itemOffX?: number;
+    itemOffY?: number;
 }
 
 /** 유닛 — 몬스터/NPC 배치. 타일 1칸 점유, 위치는 타일 중심 */

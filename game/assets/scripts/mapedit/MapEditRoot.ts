@@ -894,6 +894,8 @@ export class MapEditRoot extends Component {
             comp.targetRegionId = t.targetRegionId ?? 0;
             comp.unlockCost = t.unlockCost ?? 0;
             comp.upgradeKind = upgradeEnumOf(t.upgradeKind);
+            comp.itemOffX = t.itemOffX ?? 0;
+            comp.itemOffY = t.itemOffY ?? 0;
         }
         const restoreUnits = (rootName: string, list: MapUnitDef[] | undefined) => {
             const root = this.ensureGroup(rootName);
@@ -1189,6 +1191,8 @@ export class MapEditRoot extends Component {
                 unlockCost: triggerTypeOf(t.triggerType) === 'gate' ? t.unlockCost : undefined,
                 upgradeKind: triggerTypeOf(t.triggerType) === 'upgrade'
                     ? upgradeKindOf(t.upgradeKind) : undefined,
+                itemOffX: t.itemOffX || undefined,
+                itemOffY: t.itemOffY || undefined,
             });
         }
         for (const t of triggerList) {
