@@ -67,6 +67,11 @@ export interface CombatHost {
     hasHeavyAnim(): boolean;
     /** 데미지 표기 — 맞은 몬스터 머리 위 "-N" 팝업 */
     showDamage(amount: number, gx: number, gy: number): void;
+    /**
+     * 등짐 스택 기준점 (플레이어 로컬 px, 원점=발밑) — 애니메이션 프레임에 잡아둔 값.
+     * null이면 코드 기본값(바라보는 방향 반대쪽)을 쓴다.
+     */
+    stackAnchor(): { x: number; y: number } | null;
     /** 몬스터용 애니메이터 생성 (클립·프레임이 없으면 null → 기존 정적 표시 유지) */
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
@@ -137,8 +142,10 @@ export class CombatSystem {
 
     constructor(host: CombatHost) {
         this.host = host;
-        // 등 뒤 스택 루트 — 플레이어 자식이라 이동을 따라감
+        // 등 뒤 스택 루트 — 플레이어 자식이라 이동을 따라감.
+        // **캐릭터보다 뒤에 그린다** (등짐 컨셉 — 형제 인덱스 0 = 가장 먼저 그려짐)
         this.stackRoot = host.ui.makeNode('BackStack', host.playerNode());
+        this.stackRoot.setSiblingIndex(0);
         host.onMeatCount(0, host.carryLimit());
         host.onHp(this.hp, BAL.player.maxHp);
     }
@@ -629,9 +636,15 @@ export class CombatSystem {
     }
 
     private updateStack(dt: number) {
-        // 등판 위치 = 바라보는 방향의 반대쪽
-        const back = this.host.facing() === 'e' ? -20 : 20;
-        this.stackRoot.setPosition(back, 66, 0);
+        // 쌓이기 시작하는 위치 = **등짐 기준점**. 애니메이션 프레임에 잡아둔 값이 있으면 그걸 쓰고
+        // (걸음마다 등짐이 흔들리는 것까지 따라간다), 없으면 바라보는 방향의 반대쪽 기본값.
+        const anchor = this.host.stackAnchor();
+        if (anchor) {
+            this.stackRoot.setPosition(anchor.x, anchor.y, 0);
+        } else {
+            const back = this.host.facing() === 'e' ? -20 : 20;
+            this.stackRoot.setPosition(back, 66, 0);
+        }
         for (let i = 0; i < this.stackPieces.length; i++) {
             // 위로 갈수록 크게 흔들림(관성) — BIBLE §3
             const sway = Math.sin(this.time * BAL.stack.swaySpeed + i * 0.5)

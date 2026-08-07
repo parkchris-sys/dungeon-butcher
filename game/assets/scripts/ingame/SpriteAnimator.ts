@@ -84,6 +84,22 @@ export class SpriteAnimator {
         this.node.setScale(m ? -1 : 1, 1, 1);
     }
 
+    /**
+     * 등짐 스택 기준점 — 현재 프레임의 값 (없으면 클립에서 마지막으로 지정된 값, 그것도 없으면 null).
+     * 반환 좌표는 **표시 크기 기준의 캐릭터 로컬 px**(원점=발밑 중앙, y 위쪽 +)로 환산되고
+     * 좌우 반전 중이면 x가 뒤집혀 있다 — 호출부는 그대로 쓰면 된다.
+     */
+    private stackAnchorSrc: { x: number; y: number } | null = null;
+    get stackAnchor(): { x: number; y: number } | null {
+        const a = this.stackAnchorSrc;
+        if (!a) return null;
+        // 원본 이미지 px → 표시 px. fitHeight를 쓰면 그 비율, 아니면 baseH/원본 높이
+        const src = this.frameOf(this.clipKey, this.clip?.frames[this.frameIdx].img ?? 1);
+        const rawH = src ? (src.originalSize.height || src.rect.height) : 0;
+        const s = rawH > 0 ? (this.fitHeight > 0 ? this.fitHeight : this.baseH) / rawH : 1;
+        return { x: (this.mirrored ? -a.x : a.x) * s, y: a.y * s };
+    }
+
     /** 현재 재생 중인 클립 키 ('' = 없음) */
     get current(): string { return this.clipKey; }
     /** 비반복 클립이 끝났는지 */
@@ -104,6 +120,7 @@ export class SpriteAnimator {
         // 개체마다 시작 위상을 흩어 준다 — 22마리가 같은 프레임으로 움직이면 기계처럼 보임
         this.t = clip.loop ? Math.random() * this.frameDuration(clip, clip.frames[0]) : 0;
         this.finished = false;
+        this.stackAnchorSrc = null; // 클립이 바뀌면 이어 쓰던 기준점을 버린다
         // ⚠ applyFrame보다 **먼저** — applyFrame이 baseW/baseH에 스케일 기교를 곱하므로,
         //   기준 크기를 원본 비율로 맞춰 두지 않으면 플레이스홀더 박스 규격이 그대로 남아 납작해진다.
         this.applyFit(clip.frames[0].img);
@@ -152,6 +169,10 @@ export class SpriteAnimator {
     private applyFrame(f: AnimFrameDef, notify: boolean): string | null {
         const sf = this.frameOf(this.clipKey, f.img);
         if (sf) this.sprite.spriteFrame = sf;
+        // 등짐 기준점 — 지정된 프레임에서만 갱신하고, 없으면 직전 값을 유지한다
+        if (f.stackX !== undefined || f.stackY !== undefined) {
+            this.stackAnchorSrc = { x: f.stackX ?? 0, y: f.stackY ?? 0 };
+        }
         // 프레임별 offset — 통통 튀기·반동
         this.node.setPosition(this.baseX + (f.offX ?? 0), this.baseY + (f.offY ?? 0), 0);
         // 프레임별 스쿼시&스트레치

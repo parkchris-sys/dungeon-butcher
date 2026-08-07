@@ -390,6 +390,8 @@ export class IngameBootstrap extends Component {
             // 만재 전용 클립이 있으면 땀 플레이스홀더를 띄우지 않는다 (클립 쪽 연출과 중복)
             hasHeavyAnim: () => this.hasHeavyClips(),
             showDamage: (amount, gx, gy) => this.showDamage(amount, gx, gy),
+            // 등짐 기준점 — 애니메이션 프레임에 잡아둔 값(좌우 반전·표시 크기 환산 완료)
+            stackAnchor: () => this.playerAnim?.stackAnchor ?? null,
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
             playMonsterTurn: (anim, kind, toLeft) => this.playTurn(anim, kind, toLeft),

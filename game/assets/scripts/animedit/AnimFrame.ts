@@ -34,4 +34,18 @@ export class AnimFrame extends Component {
 
     @property({ tooltip: '이벤트 마커 (비우면 없음). `hit` = 이 프레임에 데미지가 들어감' })
     event = '';
+
+    @property({
+        type: CCInteger,
+        tooltip: '등짐 기준점 X — 고기가 쌓이기 시작하는 위치.\n'
+            + '**원본 이미지 픽셀**, 원점은 이미지 하단 중앙(캐릭터 발밑), 오른쪽이 +.\n'
+            + 'X·Y 둘 다 0이면 미지정 → 직전 프레임 값을 이어 쓴다 (1번 프레임만 잡아도 됨)',
+    })
+    stackX = 0;
+
+    @property({
+        type: CCInteger,
+        tooltip: '등짐 기준점 Y — 위쪽이 +. 미리보기에 파란 십자가로 표시된다',
+    })
+    stackY = 0;
 }

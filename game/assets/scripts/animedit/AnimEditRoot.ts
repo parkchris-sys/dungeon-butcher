@@ -1,6 +1,6 @@
 import {
     _decorator, Component, Node, Sprite, SpriteFrame, UITransform, Color, Layers,
-    RenderRoot2D, Label, CCObject, JsonAsset, assetManager, CCInteger,
+    RenderRoot2D, Label, CCObject, JsonAsset, assetManager, CCInteger, ImageAsset, Texture2D,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import { AnimClip } from './AnimClip';
@@ -112,6 +112,59 @@ export class AnimEditRoot extends Component {
         } else if (!this.infoLabel) {
             this.infoLabel = info.getComponent(Label);
         }
+    }
+
+    /** 1x1 흰 픽셀 프레임 (마커용) — 한 번 만들어 재사용 */
+    private static _square: SpriteFrame | null = null;
+    private static squareFrame(): SpriteFrame {
+        if (AnimEditRoot._square) return AnimEditRoot._square;
+        const img = new ImageAsset({
+            width: 1, height: 1, _data: new Uint8Array([255, 255, 255, 255]),
+            format: 35, _compressed: false,
+        });
+        const tex = new Texture2D();
+        tex.image = img;
+        const f = new SpriteFrame();
+        f.texture = tex;
+        AnimEditRoot._square = f;
+        return f;
+    }
+
+    /**
+     * 등짐 기준점 마커 — 미리보기 위에 파란 십자가로 찍는다 (프레임별로 눈으로 잡게).
+     * 미리보기 스프라이트의 자식이라 프레임 offset을 자동으로 따라간다.
+     * @param ks 원본 이미지 px → 미리보기 px 배율
+     * @param h  현재 미리보기 표시 높이 (발밑이 -h/2)
+     */
+    private showStackMark(f: AnimFrame | null, ks: number, h: number) {
+        const parent = this.previewSprite?.node;
+        if (!parent) return;
+        let mark = parent.getChildByName('_stackMark');
+        if (!f || (!f.stackX && !f.stackY)) {
+            if (mark) mark.active = false;
+            return;
+        }
+        if (!mark) {
+            mark = new Node('_stackMark');
+            mark.hideFlags = CCObject.Flags.DontSave;
+            mark.layer = Layers.Enum.UI_2D;
+            parent.addChild(mark);
+            const bar = (name: string, w: number, bh: number) => {
+                const n = new Node(name);
+                n.hideFlags = CCObject.Flags.DontSave;
+                n.layer = Layers.Enum.UI_2D;
+                mark!.addChild(n);
+                n.addComponent(UITransform).setContentSize(w, bh);
+                const sp = n.addComponent(Sprite);
+                sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                sp.spriteFrame = AnimEditRoot.squareFrame();
+                sp.color = new Color(79, 163, 247, 230);
+            };
+            bar('H', 22, 3);
+            bar('V', 3, 22);
+        }
+        mark.active = true;
+        mark.setPosition(f.stackX * ks, -h / 2 + f.stackY * ks, 0);
     }
 
     // ── 프레임 이미지 캐시 (chars 폴더 스캔) ──
@@ -284,13 +337,19 @@ export class AnimEditRoot extends Component {
             // 프레임별 offset (게임 px → 미리보기 배율 반영)
             const k = PREVIEW_PX / 128;
             sp.node.setPosition(f.offX * k, f.offY * k, 0);
+            // 등짐 기준점 마커 — 원본 이미지 px 기준이라 미리보기 배율로 환산해서 찍는다
+            const rawH = sf.originalSize.height || sf.rect.height;
+            const ks = rawH > 0 ? PREVIEW_PX / rawH : 1;
+            this.showStackMark(f, ks, h);
         } else {
             sp.node.active = false;
+            this.showStackMark(null, 1, 0);
         }
         if (this.infoLabel) {
             this.infoLabel.string = `${clip.clipKey || '(키 미지정)'}  ${this.frameIdx + 1}/${frames.length}`
                 + `  img=${imgNo}${sf ? '' : ' ⚠이미지 없음'}  hold=${f.hold}`
-                + (f.event ? `  event=${f.event}` : '');
+                + (f.event ? `  event=${f.event}` : '')
+                + ((f.stackX || f.stackY) ? `  등짐(${f.stackX},${f.stackY})` : '');
         }
     }
 
@@ -310,6 +369,9 @@ export class AnimEditRoot extends Component {
                 scaleX: f.scaleX !== 1 ? f.scaleX : undefined,
                 scaleY: f.scaleY !== 1 ? f.scaleY : undefined,
                 event: f.event.trim() || undefined,
+                // 등짐 기준점 — 둘 다 0이면 미지정으로 보고 내보내지 않는다
+                stackX: (f.stackX || f.stackY) ? f.stackX : undefined,
+                stackY: (f.stackX || f.stackY) ? f.stackY : undefined,
             }));
             if (frames.length === 0) { console.warn(`[AnimEditRoot] 클립 '${key}'에 프레임이 없어 제외됩니다`); continue; }
             frameTotal += frames.length;
@@ -374,6 +436,8 @@ export class AnimEditRoot extends Component {
                 fc.scaleX = f.scaleX ?? 1;
                 fc.scaleY = f.scaleY ?? 1;
                 fc.event = f.event ?? '';
+                fc.stackX = f.stackX ?? 0;
+                fc.stackY = f.stackY ?? 0;
             });
         }
         console.log(`[AnimEditRoot] 불러오기 완료 — 클립 ${Object.keys(data.clips).length}개`);

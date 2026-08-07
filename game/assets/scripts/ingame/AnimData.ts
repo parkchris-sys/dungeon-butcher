@@ -21,6 +21,16 @@ export interface AnimFrameDef {
     scaleY?: number;
     /** 이벤트 마커 — 이 프레임에 진입할 때 게임 로직에 알림 (예: 'hit' = 데미지 타이밍) */
     event?: string;
+    /**
+     * 등짐 스택 기준점 — 고기가 쌓이기 시작하는 위치 (등짐 컨셉, 2026-08-07).
+     * **원본 이미지 픽셀** 기준, 원점은 **이미지 하단 중앙**(= 캐릭터 발밑), y는 위쪽이 +.
+     * 런타임이 표시 크기에 맞춰 환산하고 좌우 반전 시 x를 뒤집는다.
+     * 지정하지 않은 프레임은 **그 클립에서 마지막으로 지정된 값**을 이어 쓴다
+     * (1번 프레임만 잡아도 되고, 걸음마다 흔들리게 하려면 프레임별로 잡으면 된다).
+     * 클립 전체에 없으면 코드 기본값으로 폴백.
+     */
+    stackX?: number;
+    stackY?: number;
 }
 
 /** 클립 1개 = 한 종류의 한 상태 (예: chicken_walk) */
@@ -66,6 +76,9 @@ export function parseAnimDataJson(j: unknown): AnimData | null {
                 scaleX: f.scaleX && f.scaleX > 0 ? f.scaleX : 1,
                 scaleY: f.scaleY && f.scaleY > 0 ? f.scaleY : 1,
                 event: f.event || undefined,
+                // 0은 "미지정"으로 본다 — 발밑 중앙에 짐을 쌓는 경우는 없으므로
+                stackX: f.stackX || undefined,
+                stackY: f.stackY || undefined,
             })),
         };
     }
