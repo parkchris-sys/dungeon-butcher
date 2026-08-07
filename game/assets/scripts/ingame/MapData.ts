@@ -58,6 +58,12 @@ export interface MapObjectDef {
     floorDecal?: boolean; // true면 바닥에 깔린 것 — 항상 캐릭터보다 먼저(뒤에) 그려짐
     regionId?: number;  // 종속 리전 ID — 에디터에서 이 리전 objects 자식으로 편입 (0/없음=전역)
     imgScale?: number;  // 외형 이미지 배율 (기본 1 — 타일 크기와 무관, 원본 픽셀 기준)
+    /**
+     * 외형 좌우 반전 — 아이소 대각 방향을 바꾼다 (2026-08-07).
+     * 긴 오브젝트 아트는 한쪽 대각(예: gy축 ↘)으로만 그려져 있어서, 반대 대각(gx축 ↗)
+     * 발자국에 그대로 쓰면 90° 어긋나 떠 보인다. 이 값으로 뒤집으면 반대 방향에 맞는다.
+     */
+    flipX?: boolean;
     imgOffX?: number;   // 외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준
     imgOffY?: number;   // 외형 이미지 Y offset(px)
 }

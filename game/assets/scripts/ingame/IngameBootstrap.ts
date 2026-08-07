@@ -1523,6 +1523,8 @@ export class IngameBootstrap extends Component {
                 const bw = art.rect.width * scale, bh = art.rect.height * scale;
                 const body = this.addSprite('Body', p, art, bw, bh, this.color('#FFFFFF'));
                 body.setPosition(offX, -isoH / 2 + bh / 2 + offY, 0);
+                // 좌우 반전 — 아이소 대각 방향 전환 (gy축 아트를 gx축 발자국에 맞출 때)
+                if (o.flipX) body.setScale(-1, 1, 1);
             } else {
                 // 이미지 미지정 — 실루엣 박스 폴백 (발자국 아이소 폭 기준)
                 const bh = isoW * 0.6;

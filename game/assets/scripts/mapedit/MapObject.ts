@@ -48,6 +48,11 @@ export class MapObject extends Component {
     @property({ tooltip: '외형 이미지 배율 (기본 1) — 타일 크기(tileW/H)와 무관하게 이미지 크기를 조절' })
     imgScale = 1;
 
+    @property({ tooltip: '외형 좌우 반전 — 아이소 대각 방향을 바꾼다.\n'
+        + '긴 아트는 한쪽 대각으로만 그려져 있어서(예: 울타리 = gy축 ↘),\n'
+        + '반대 대각 발자국(4×1 = gx축 ↗)에 그대로 쓰면 90도 어긋나 떠 보인다. 그때 체크.' })
+    flipX = false;
+
     @property({ type: CCInteger, tooltip: '외형 이미지 X offset(px) — 발자국 하단 꼭짓점 기준' })
     imgOffX = 0;
 
@@ -89,7 +94,7 @@ export class MapObject extends Component {
 
         const sf = objFrame(this.img);
         const scale = this.imgScale || 1;
-        const key = `${this.img},${!!sf},${w},${h},${scale},${this.imgOffX},${this.imgOffY}`;
+        const key = `${this.img},${!!sf},${w},${h},${scale},${this.imgOffX},${this.imgOffY},${this.flipX}`;
         if (key === this.lastKey) return;
         this.lastKey = key;
 
@@ -110,6 +115,8 @@ export class MapObject extends Component {
             const offGx = this.imgOffX / TILE_W + this.imgOffY / TILE_H;
             const offGy = -this.imgOffX / TILE_W + this.imgOffY / TILE_H;
             view.setPosition(corner + offGx * B, corner + offGy * B, 0);
+            // 역보정(-45°, y 2배)에 좌우 반전을 곱한다 — x 부호만 뒤집으면 대각 방향이 바뀐다
+            view.setScale(this.flipX ? -1 : 1, 2, 1);
             view.active = true;
             if (base) {
                 // ⚠️ Sprite 색 알파는 자식(_img)에 상속됨 — 알파 255로 올려 이미지가 흐려지지 않게 한 뒤
