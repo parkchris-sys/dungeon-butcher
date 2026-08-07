@@ -471,6 +471,13 @@ export class IngameBootstrap extends Component {
             },
             spawnCustomer: (gx, gy, img) => this.customerSystem?.spawn(gx, gy, img),
             gold: () => this.goldCount,
+            // 트리거 타일과 겹치는 오브젝트 — 자원을 그 노드의 자식으로 붙여 함께 정렬하게 한다
+            objectNodeOverlapping: (gx, gy, w, h) => {
+                for (const o of this.objectDepths) {
+                    if (gx <= o.x1 && o.x0 <= gx + w - 1 && gy <= o.y1 && o.y0 <= gy + h - 1) return o.node;
+                }
+                return null;
+            },
             spendGold: (amount) => {
                 if (this.goldCount < amount) return false;
                 this.goldCount -= amount;
