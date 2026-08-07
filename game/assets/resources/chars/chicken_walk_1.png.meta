@@ -20,8 +20,8 @@
         "imageUuidOrDatabaseUri": "7c22a5bd-cbe1-44a3-9c50-3018e7939c37",
         "isUuid": true,
         "visible": false,
-        "minfilter": "linear",
-        "magfilter": "linear",
+        "minfilter": "nearest",
+        "magfilter": "nearest",
         "mipfilter": "none",
         "anisotropy": 0
       },
@@ -115,7 +115,7 @@
         "isUuid": true,
         "imageUuidOrDatabaseUri": "7c22a5bd-cbe1-44a3-9c50-3018e7939c37@6c48a",
         "atlasUuid": "",
-        "trimType": "auto"
+        "trimType": "none"
       },
       "ver": "1.0.12",
       "imported": true,

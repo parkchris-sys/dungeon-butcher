@@ -18,7 +18,7 @@ function spriteVertices(W, H) {
   };
 }
 
-function buildMeta(name, W, H, FILTER) {
+function buildMeta(name, W, H, FILTER, TRIM) {
   const u = crypto.randomUUID();
   const tex = 'a' + Math.random().toString(16).slice(2, 6);
   const spr = 'b' + Math.random().toString(16).slice(2, 6);
@@ -38,7 +38,7 @@ function buildMeta(name, W, H, FILTER) {
           borderTop: 0, borderBottom: 0, borderLeft: 0, borderRight: 0,
           packable: true, pixelsToUnit: 100, pivotX: 0.5, pivotY: 0.5, meshType: 0,
           vertices: spriteVertices(W, H),
-          isUuid: true, imageUuidOrDatabaseUri: `${u}@${tex}`, atlasUuid: "", trimType: "auto"
+          isUuid: true, imageUuidOrDatabaseUri: `${u}@${tex}`, atlasUuid: "", trimType: TRIM
         },
         ver: "1.0.12", imported: true, files: [".json"], subMetas: {}
       }
@@ -49,9 +49,14 @@ function buildMeta(name, W, H, FILTER) {
 
 (async () => {
   // --nearest: 픽셀아트용. 확대할 때 뭉개지지 않게 point 필터로 (기본 linear는 픽셀을 흐리게 만든다)
+  // --notrim: **여러 프레임짜리 애니메이션 클립에는 필수.**
+  //   기본값 trimType=auto는 프레임마다 투명 여백을 잘라내는데, 잘린 폭은 프레임마다 다르다.
+  //   그런데 노드 크기는 첫 프레임 비율로 한 번만 정해지므로(SpriteAnimator.applyFit),
+  //   좁게 잘린 프레임이 그 크기에 맞춰 **가로로 늘어난다** → 걸을 때 몸이 뚱뚱해졌다 홀쭉해졌다 한다.
   const args = process.argv.slice(2);
   const NEAREST = args.includes('--nearest');
-  for (const p of args.filter(a => a !== '--nearest')) {
+  const NOTRIM = args.includes('--notrim');
+  for (const p of args.filter(a => !a.startsWith('--'))) {
     const im = await Jimp.read(p);
     const W = im.bitmap.width, H = im.bitmap.height;
     const name = path.basename(p, '.png');
@@ -63,12 +68,15 @@ function buildMeta(name, W, H, FILTER) {
         if (NEAREST && sm.importer === 'texture') { sm.userData.minfilter = 'nearest'; sm.userData.magfilter = 'nearest'; }
         if (sm.importer !== 'sprite-frame') continue;
         Object.assign(sm.userData, { width: W, height: H, rawWidth: W, rawHeight: H });
+        if (NOTRIM) Object.assign(sm.userData, {
+          trimType: 'none', trimX: 0, trimY: 0, offsetX: 0, offsetY: 0,
+        });
         sm.userData.vertices = spriteVertices(W, H);
       }
       fs.writeFileSync(mp, JSON.stringify(m, null, 2));
       console.log(`  갱신 ${name}  ${W}x${H} (uuid 유지)`);
     } else {
-      fs.writeFileSync(mp, JSON.stringify(buildMeta(name, W, H, NEAREST ? 'nearest' : 'linear'), null, 2));
+      fs.writeFileSync(mp, JSON.stringify(buildMeta(name, W, H, NEAREST ? 'nearest' : 'linear', NOTRIM ? 'none' : 'auto'), null, 2));
       console.log(`  신규 ${name}  ${W}x${H}`);
     }
   }
