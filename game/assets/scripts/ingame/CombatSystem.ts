@@ -65,6 +65,8 @@ export interface CombatHost {
     facingVec(): [number, number];
     /** 만재 전용 클립(idle_heavy·walk_heavy)이 반입됐는지 — true면 땀 플레이스홀더를 띄우지 않는다 */
     hasHeavyAnim(): boolean;
+    /** 데미지 표기 — 맞은 몬스터 머리 위 "-N" 팝업 */
+    showDamage(amount: number, gx: number, gy: number): void;
     /** 몬스터용 애니메이터 생성 (클립·프레임이 없으면 null → 기존 정적 표시 유지) */
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
@@ -488,7 +490,9 @@ export class CombatSystem {
         this.showSlash(p, s);
         const dx = s.gx - p.gx, dy = s.gy - p.gy;
         const d = Math.max(Math.hypot(dx, dy), 0.001);
-        s.hp -= this.host.attackPower(); // 강화 반영 공격력
+        const dmg = this.host.attackPower(); // 강화 반영 공격력
+        s.hp -= dmg;
+        this.host.showDamage(dmg, s.gx, s.gy); // 데미지 표기 (요청 2026-08-07)
         s.flashT = 0.09;
         s.body.color = this.host.ui.color('#FFFFFF');
         // 넉백 (벽 통과 방지)

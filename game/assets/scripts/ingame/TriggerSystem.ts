@@ -5,6 +5,7 @@ import { isoX, isoY, TILE_W } from './Projection';
 const TRANSFER_S = 0.3;      // 아이템(고기·요리·돈) 이동 시간 — 기획 정의 전 (임의)
 const COOK_S = 1.0;          // 고기 1개 요리 시간 — 기획 정의 전 (임의)
 const SPAWN_INTERVAL_S = 10; // NPC 스폰 주기 — 기획의 스폰 규칙 정의 전 (임의: 10초에 1명)
+const SELL_PRICE = 1;        // 요리 1개 판매가 (골드) — 종전 회수 체인의 개당 1골드를 그대로 승계 (임의)
 
 /**
  * 강화 스펙 (BIBLE §7-b 3종) — **비용 곡선은 기획 TBD라 전부 (임의)**.
@@ -26,7 +27,7 @@ export const UPGRADE_SPEC: Record<UpgradeKind, {
 /**
  * 손님 상태 — CustomerSystem(이동)과 TriggerSystem(판매/정산)이 공유.
  *  waiting(대기열 이동중) → wants-food(줄 끝, 요리 대기) → satisfied(요리 받음)
- *  → leaving(정산 완료, 퇴장 이동중) → done(퇴장 완료·비활성)
+ *  → leaving(결제 완료, 퇴장 이동중) → done(퇴장 완료·비활성)
  */
 export type CustomerState = 'waiting' | 'wants-food' | 'satisfied' | 'leaving' | 'done';
 
@@ -38,7 +39,7 @@ export interface TriggerNpc {
     spawnId: number;        // 스폰 순서 — 스폰 트리거가 1씩 증가해 부여 (작을수록 먼저 온 손님)
     state: CustomerState;
     served: boolean;        // 판매대가 이미 요리를 준 손님인지 (중복 제공 방지)
-    paid: boolean;          // 정산대가 이미 돈을 회수한 손님인지 (중복 회수 방지)
+    paid: boolean;          // 이미 결제된 손님인지 (판매 즉시 결제 — 중복 지급 방지)
 }
 
 export interface TriggerUi {
@@ -134,8 +135,11 @@ export class TriggerSystem {
                 case 'cooking': this.updateCooking(trigger); break;
                 case 'serving-counter': this.updateServingCounter(trigger); break;
                 case 'purchase-spot': this.updatePurchaseSpot(trigger); break;
-                case 'checkout': this.updateCheckout(trigger); break;
-                case 'money-pickup': this.updateMoneyPickup(trigger); break;
+                // 정산대·회수위치는 **폐기됨** (결정 2026-08-07 — 판매 즉시 골드).
+                // 맵에 남아 있어도 아무 동작을 하지 않는다. 타입 자체는 데이터 호환을 위해 유지
+                // (디자이너가 재내보내기로 지울 때까지) — 시작 시 경고로 안내한다.
+                case 'checkout':
+                case 'money-pickup': break;
                 case 'npc-spawn': this.updateNpcSpawn(trigger); break;
                 case 'player-resource': this.updatePlayerResource(trigger); break;
                 // 게이트·강화는 매 프레임 처리 없음 — 부트스트랩이 조회(lockedGateAt/upgradeAt)로 처리
@@ -197,26 +201,11 @@ export class TriggerSystem {
         this.flyToPoint('ServedFood', start.x, start.y + 22,
             customer.node.position.x, customer.node.position.y + 70, '#E7A33E', start.y - 1, () => {
                 customer.state = 'satisfied';
-            });
-    }
-
-    private updateCheckout(source: RuntimeTrigger) {
-        if (source.timer > 0) return;
-        const spot = this.linked(source, 0, 'purchase-spot');
-        if (!spot) return;
-        const customer = this.front(spot.customers, n => n.state === 'satisfied' && !n.paid);
-        if (!customer) return;
-
-        customer.paid = true;
-        source.timer = TRANSFER_S;
-        // 회수한 돈은 2번 연결 트리거로 이송 — 없으면 정산대 자기 자리에 쌓임(회수위치가 가져감)
-        const moneyHolder = this.byId.get(source.def.triggerLinks[1] ?? '') ?? source;
-        const target = this.center(moneyHolder.def);
-        this.flyToPoint('Money', customer.node.position.x, customer.node.position.y + 70,
-            target.x, target.y + 22, '#F0B429', customer.node.position.y - 1, () => {
-                this.pushItem(moneyHolder, moneyHolder.money, 'Money', '#F0B429');
-                // 퇴장 시작 — 실제 내보내기(퇴장 타일 따라 이동·비활성)는 CustomerSystem이 처리
-                customer.state = 'leaving';
+                // 판매 즉시 골드 (결정 2026-08-07 재확정) — 정산대·회수위치를 거치지 않는다.
+                // "고기는 운반 대상이지만 돈은 아니다" (BIBLE §9-a 4). 표시는 "+N" 팝업(§10-a).
+                customer.paid = true;
+                this.host.addGold(SELL_PRICE);
+                // 퇴장 전환은 CustomerSystem이 처리 — 한 프레임 뒤라 행복 이모티콘이 보인다
             });
     }
 
@@ -375,21 +364,6 @@ export class TriggerSystem {
         }
     }
 
-    private updateMoneyPickup(source: RuntimeTrigger) {
-        if (source.timer > 0 || !this.containsPlayer(source.def)) return;
-        const checkout = this.linked(source, 0, 'checkout');
-        if (!checkout || checkout.money.length === 0) return;
-
-        const top = checkout.money.pop();
-        top?.destroy();
-        source.timer = TRANSFER_S;
-        const start = this.center(checkout.def);
-        const p = this.host.playerNode().position;
-        this.flyToPoint('MoneyPickup', start.x, start.y + 22, p.x, p.y + 70, '#F0B429', start.y - 1, () => {
-            this.host.addGold(1);
-        });
-    }
-
     /**
      * 게이트 설정 점검 — 게이트 근처에 **통과 불가 오브젝트(문)가 있는데 연결되지 않은** 경우 경고.
      * 연결이 없으면 해금해도 그 문이 계속 길을 막아 "게이트가 안 열린다"로 보인다.
@@ -415,10 +389,13 @@ export class TriggerSystem {
             'ingredient-dropoff': 'cooking',
             'cooking': 'serving-counter',
             'serving-counter': 'purchase-spot',
-            'checkout': 'purchase-spot',
-            'money-pickup': 'checkout',
         };
         for (const trigger of this.byId.values()) {
+            // 폐기된 타입 안내 (결정 2026-08-07) — 남아 있어도 무동작이므로 맵에서 지우면 된다
+            if (trigger.def.type === 'checkout' || trigger.def.type === 'money-pickup') {
+                console.warn(`[TriggerSystem] '${trigger.def.id}'(${trigger.def.type})는 폐기된 타입입니다 `
+                    + `— 판매 즉시 골드로 바뀌어 아무 동작을 하지 않습니다. 에디터에서 삭제 후 재내보내기 하세요`);
+            }
             for (const objectId of trigger.def.objectLinks) {
                 if (!this.objects.some(object => object.id === objectId)) {
                     console.warn(`[TriggerSystem] '${trigger.def.id}'의 연결 오브젝트 '${objectId}'를 찾을 수 없습니다`);

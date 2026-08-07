@@ -363,6 +363,7 @@ export class IngameBootstrap extends Component {
             facingVec: () => DIR8_VEC[this.facing],
             // 만재 전용 클립이 있으면 땀 플레이스홀더를 띄우지 않는다 (클립 쪽 연출과 중복)
             hasHeavyAnim: () => this.hasHeavyClips(),
+            showDamage: (amount, gx, gy) => this.showDamage(amount, gx, gy),
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
             playMonsterTurn: (anim, kind, toLeft) => this.playMonsterTurn(anim, kind, toLeft),
@@ -813,15 +814,31 @@ export class IngameBootstrap extends Component {
 
     /** 골드 획득 "+N" 팝업 — 상시 카운터 대신 순간 연출 (BIBLE §10-a) */
     private showGoldGain(amount: number) {
-        const node = this.makeNode('GoldGain', this.entities);
         const p = this.player.position;
-        node.setPosition(p.x, p.y + IngameBootstrap.CHAR_PX, 0);
+        this.showFloatText(`+${amount}`, p.x, p.y + IngameBootstrap.CHAR_PX, '#F0B429', 44);
+    }
+
+    /**
+     * 데미지 표기 — 맞은 몬스터 머리 위에 뜨는 "-N" (요청 2026-08-07).
+     * 상시 HUD가 아니라 월드-인 팝업이므로 §10-a("상시 코너 HUD 없음")와 충돌하지 않는다.
+     * ⚠ 색·크기·상승 연출은 골드 팝업과 같은 규격을 쓴다 (임의).
+     */
+    private showDamage(amount: number, gx: number, gy: number) {
+        this.showFloatText(`-${amount}`, isoX(gx, gy), isoY(gx, gy) + IngameBootstrap.MONSTER_PX,
+            '#F5F0E6', 36);
+    }
+
+    /** 위로 떠오르며 사라지는 월드 텍스트 (골드·데미지 공용) */
+    private showFloatText(text: string, x: number, y: number, hex: string, fontSize: number) {
+        const node = this.makeNode('FloatText', this.entities);
+        node.setPosition(x, y, 0);
         (node as unknown as { __sortY: number }).__sortY = -1e6; // 팝업은 최전면
         const lb = node.addComponent(Label);
-        lb.string = `+${amount}`;
-        lb.fontSize = 44;
+        lb.string = text;
+        lb.fontSize = fontSize;
         lb.isBold = true;
-        lb.color = this.color('#F0B429');
+        lb.cacheMode = Label.CacheMode.BITMAP; // 실기기 글리프 겹침 방지
+        lb.color = this.color(hex);
         this.goldPopups.push({ node, t: 0 });
     }
 

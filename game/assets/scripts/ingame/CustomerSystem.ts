@@ -154,6 +154,9 @@ export class CustomerSystem {
             const n = c.npc;
 
             if (n.state === 'satisfied' && c.prevState !== 'satisfied') c.mood = HAPPY;
+            // 판매 즉시 결제(결정 2026-08-07)라 만족한 손님은 곧바로 퇴장한다.
+            // 행복 이모티콘을 한 프레임 보여준 뒤 넘기려고 prevState 갱신 후에 전환한다.
+            else if (n.state === 'satisfied' && n.paid) n.state = 'leaving';
             c.prevState = n.state;
 
             if (n.state === 'waiting' || n.state === 'wants-food') {
