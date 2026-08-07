@@ -69,6 +69,11 @@ export interface CombatHost {
     makeAnimator(body: Sprite, baseY: number, w: number, h: number): SpriteAnimator | null;
     /** 몬스터 클립 재생 (`{kind}_{state}`) — 없으면 무시 */
     playMonsterAnim(anim: SpriteAnimator | null, kind: string, state: string): void;
+    /**
+     * 좌우 턴 클립 재생 (`{kind}_turn_{l|r}`) — 방향이 바뀌는 순간 끼워 넣는다.
+     * 클립이 없으면 false (그 경우 종전처럼 좌우 반전만으로 즉시 전환된다).
+     */
+    playMonsterTurn(anim: SpriteAnimator | null, kind: string, toLeft: boolean): boolean;
     /** 애니메이터 프레임 진행 + 좌우 반전(화면 왼쪽으로 이동 중이면 true) */
     updateAnim(anim: SpriteAnimator | null, dt: number, faceLeft?: boolean): void;
     ui: CombatUi;
@@ -89,6 +94,7 @@ interface Chicken {
     flashT: number;   // 피격 플래시 남은 시간
     dieT: number;     // 0보다 크면 사망 연출 중
     alive: boolean;
+    faceLeft: boolean;           // 화면 기준 좌향 여부 — 바뀌는 순간 턴 클립을 끼운다
     anim: SpriteAnimator | null; // 종류별 클립({kind}_walk 등) — 아트 없으면 null 유지
 }
 
@@ -215,7 +221,7 @@ export class CombatSystem {
             s = {
                 node, body: bodySprite, gx, gy,
                 homeGx: gx, homeGy: gy, dungeonId: 0, kind: 'chicken',
-                hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true, anim,
+                hp: BAL.chicken.hp, flashT: 0, dieT: 0, alive: true, faceLeft: false, anim,
             };
         }
         s.gx = gx; s.gy = gy;
@@ -227,6 +233,9 @@ export class CombatSystem {
         s.node.active = true;
         s.node.setScale(1, 1, 1);
         this.host.playMonsterAnim(s.anim, s.kind, 'walk'); // 클립 없으면 내부에서 무시
+        // 초기 방향은 플레이어 쪽 — 스폰 직후 턴 클립이 불필요하게 재생되지 않게 미리 맞춘다
+        const pg = this.host.playerG();
+        s.faceLeft = ((pg.gx - gx) - (pg.gy - gy)) < 0;
         s.body.color = this.bodyTint(s);
         s.node.setPosition(isoX(gx, gy), isoY(gx, gy), 0);
         this.chickens.push(s);
@@ -276,8 +285,16 @@ export class CombatSystem {
                 s.node.setScale(1 + bounce * 0.06, 1 - bounce * 0.08, 1);
             }
             s.node.setPosition(isoX(s.gx, s.gy), isoY(s.gx, s.gy), 0);
-            // 화면 수평 이동 방향 = (dgx - dgy) 부호 (아이소: screenX = (gx-gy)*64)
-            this.host.updateAnim(s.anim, dt, (dx - dy) < 0);
+
+            // 좌우 턴 — 화면 수평 방향 = (dgx - dgy) 부호 (아이소: screenX = (gx-gy)*64).
+            // 화면상 거의 수직으로 접근할 때 부호가 떨려 계속 도는 것을 막으려고 데드존을 둔다.
+            const sdx = dx - dy;
+            if (Math.abs(sdx) > CombatSystem.TURN_DEADZONE && (sdx < 0) !== s.faceLeft) {
+                s.faceLeft = sdx < 0;
+                // 턴 클립이 있으면 재생(loop=false·next=walk로 걷기 복귀), 없으면 반전만으로 즉시 전환
+                this.host.playMonsterTurn(s.anim, s.kind, s.faceLeft);
+            }
+            this.host.updateAnim(s.anim, dt, s.faceLeft);
 
             // 접촉 데미지 (추적 중일 때만, 무적시간으로 틱 제한)
             if (chasing && this.invulnT <= 0) {
@@ -410,6 +427,12 @@ export class CombatSystem {
      * 확정 시 이 상수만 고치면 된다 (수치 정본은 BALANCE — 아직 항목 없음).
      */
     private static readonly FACING_CONE_COS = 0.5; // cos(60°)
+
+    /**
+     * 몬스터 좌우 턴 데드존 (타일, 임의) — 표적이 화면상 거의 수직 방향일 때
+     * 수평 부호가 떨려 턴 클립이 계속 재생되는 것을 막는다.
+     */
+    private static readonly TURN_DEADZONE = 0.25;
 
     private inFacingCone(p: { gx: number; gy: number }, s: Chicken): boolean {
         // 그리드 → 화면 벡터 (isoX=(gx-gy)*TILE_W/2, isoY=(gx+gy)*TILE_H/2)

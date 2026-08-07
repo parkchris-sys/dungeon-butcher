@@ -250,6 +250,33 @@ export class IngameBootstrap extends Component {
         return anim;
     }
 
+    /** 턴 클립인지 (`{종류}_turn_{l|r}`) — 재생 중에는 좌우 반전을 덮어쓰면 안 된다 */
+    private static isTurnClip(key: string): boolean {
+        return key.indexOf('_turn_') >= 0;
+    }
+
+    /**
+     * 몬스터 좌우 턴 — 방향이 바뀌는 순간 턴 클립을 끼워 넣는다 (loop=false·next=walk로 걷기 복귀).
+     * 한쪽 턴만 반입돼 있으면 **뒤집어서** 반대쪽 턴으로 쓴다 (반전 = 반대 방향 회전).
+     * 반전으로 쓴 경우 클립이 끝난 뒤 반전 상태가 방향과 어긋나지만,
+     * 턴이 끝나면 updateAnim이 다시 방향대로 반전을 걸어 스스로 맞춰진다.
+     */
+    private playMonsterTurn(anim: SpriteAnimator | null, kind: string, toLeft: boolean): boolean {
+        if (!anim || !this.animData) return false;
+        if (IngameBootstrap.isTurnClip(anim.current) && !anim.done) return false; // 도는 중이면 방해하지 않음
+        const want = `${kind}_turn_${toLeft ? 'l' : 'r'}`;
+        if (this.animData.clips[want]) {
+            anim.setMirror(false); // 회전은 클립이 담고 있다
+            return anim.play(this.animData, want, true);
+        }
+        const alt = `${kind}_turn_${toLeft ? 'r' : 'l'}`;
+        if (this.animData.clips[alt]) {
+            anim.setMirror(true);
+            return anim.play(this.animData, alt, true);
+        }
+        return false;
+    }
+
     private buildWorld() {
         this.world = this.makeNode('World', this.node);
         this.world.setScale(this.zoom, this.zoom, 1);
@@ -338,9 +365,14 @@ export class IngameBootstrap extends Component {
             hasHeavyAnim: () => this.hasHeavyClips(),
             makeAnimator: (body, baseY, w, h) => this.makeAnimator(body, baseY, w, h),
             playMonsterAnim: (anim, kind, state) => { anim?.play(this.animData, animKey(kind, state)); },
+            playMonsterTurn: (anim, kind, toLeft) => this.playMonsterTurn(anim, kind, toLeft),
             updateAnim: (anim, dt, faceLeft) => {
-                // 방향별 클립이 있으면 그걸 쓰고, 없으면 좌우 반전 (플레이어와 동일 규칙)
-                if (anim && faceLeft !== undefined) anim.setMirror(faceLeft);
+                // 좌우 반전으로 방향 처리 (몬스터는 좌우 2방향 — BIBLE §6-a).
+                // ⚠ 턴 클립 재생 중에는 건드리지 않는다 — 회전을 그림 자체가 담고 있어서
+                //   여기서 반전을 덮어쓰면 도는 방향이 반대로 보인다.
+                if (anim && faceLeft !== undefined && !IngameBootstrap.isTurnClip(anim.current)) {
+                    anim.setMirror(faceLeft);
+                }
                 anim?.update(dt, this.animData);
             },
             ui: {
