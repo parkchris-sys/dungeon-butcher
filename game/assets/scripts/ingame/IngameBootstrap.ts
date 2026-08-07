@@ -1499,7 +1499,15 @@ export class IngameBootstrap extends Component {
             p.setPosition(isoX(cx, cy), isoY(cx, cy), 0);
             if (o.id) this.objectNodes.set(o.id, p); // 트리거가 연결로 참조할 수 있게 등록
             // 바닥 데칼 = 항상 캐릭터보다 먼저(뒤에) 그려지게 — 정렬 깊이를 최후방으로
-            if (o.floorDecal) (p as unknown as { __sortY: number }).__sortY = 1e6;
+            if (o.floorDecal) {
+                (p as unknown as { __sortY: number }).__sortY = 1e6;
+            } else {
+                // 정렬 깊이 = **발자국의 앞쪽(아래) 꼭짓점** — 노드 위치(발자국 중심)가 아니다.
+                // ⚠ 그림은 아래 꼭짓점에 앵커되므로 중심으로 정렬하면 긴 오브젝트(1×4 등)에서
+                //   그림이 서 있는 자리보다 (w+h)/2 타일만큼 뒤로 정렬돼, 옆·뒤에 선 캐릭터가
+                //   오브젝트 위로 올라온다. 앵커와 정렬 기준을 일치시켜 항상 가려지게 한다.
+                (p as unknown as { __sortY: number }).__sortY = isoY(o.gx, o.gy);
+            }
 
             if (!o.floorDecal) { // 바닥 데칼은 그림자 없음(바닥에 붙음)
                 const shadow = this.addSprite('Shadow', p, this.diamondFrame(),
