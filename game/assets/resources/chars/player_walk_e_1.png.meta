@@ -20,8 +20,8 @@
         "imageUuidOrDatabaseUri": "e76e3aa6-d7d4-4af7-a01a-5bbdc1450072",
         "isUuid": true,
         "visible": false,
-        "minfilter": "linear",
-        "magfilter": "linear",
+        "minfilter": "nearest",
+        "magfilter": "nearest",
         "mipfilter": "none",
         "anisotropy": 0
       },
@@ -41,14 +41,14 @@
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
-        "trimX": 0,
-        "trimY": 0,
-        "width": 41,
+        "offsetX": 0.5,
+        "offsetY": -0.5,
+        "trimX": 3,
+        "trimY": 1,
+        "width": 56,
         "height": 59,
-        "rawWidth": 41,
-        "rawHeight": 59,
+        "rawWidth": 61,
+        "rawHeight": 60,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -60,16 +60,16 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -20.5,
+            -28,
             -29.5,
             0,
-            20.5,
+            28,
             -29.5,
             0,
-            -20.5,
+            -28,
             29.5,
             0,
-            20.5,
+            28,
             29.5,
             0
           ],
@@ -82,32 +82,32 @@
             3
           ],
           "uv": [
+            3,
+            59,
+            59,
+            59,
+            3,
             0,
             59,
-            41,
-            59,
-            0,
-            0,
-            41,
             0
           ],
           "nuv": [
+            0.04918032786885246,
             0,
+            0.9672131147540983,
             0,
-            1,
-            0,
-            0,
-            1,
-            1,
-            1
+            0.04918032786885246,
+            0.9833333333333333,
+            0.9672131147540983,
+            0.9833333333333333
           ],
           "minPos": [
-            -20.5,
+            -28,
             -29.5,
             0
           ],
           "maxPos": [
-            20.5,
+            28,
             29.5,
             0
           ]
