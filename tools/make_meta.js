@@ -18,7 +18,7 @@ function spriteVertices(W, H) {
   };
 }
 
-function buildMeta(name, W, H) {
+function buildMeta(name, W, H, FILTER) {
   const u = crypto.randomUUID();
   const tex = 'a' + Math.random().toString(16).slice(2, 6);
   const spr = 'b' + Math.random().toString(16).slice(2, 6);
@@ -27,7 +27,7 @@ function buildMeta(name, W, H) {
     subMetas: {
       [tex]: {
         importer: "texture", uuid: `${u}@${tex}`, displayName: name, id: tex, name: "texture",
-        userData: { wrapModeS: "clamp-to-edge", wrapModeT: "clamp-to-edge", imageUuidOrDatabaseUri: u, isUuid: true, visible: false, minfilter: "linear", magfilter: "linear", mipfilter: "none", anisotropy: 0 },
+        userData: { wrapModeS: "clamp-to-edge", wrapModeT: "clamp-to-edge", imageUuidOrDatabaseUri: u, isUuid: true, visible: false, minfilter: FILTER, magfilter: FILTER, mipfilter: "none", anisotropy: 0 },
         ver: "1.0.22", imported: true, files: [".json"], subMetas: {}
       },
       [spr]: {
@@ -48,7 +48,10 @@ function buildMeta(name, W, H) {
 }
 
 (async () => {
-  for (const p of process.argv.slice(2)) {
+  // --nearest: 픽셀아트용. 확대할 때 뭉개지지 않게 point 필터로 (기본 linear는 픽셀을 흐리게 만든다)
+  const args = process.argv.slice(2);
+  const NEAREST = args.includes('--nearest');
+  for (const p of args.filter(a => a !== '--nearest')) {
     const im = await Jimp.read(p);
     const W = im.bitmap.width, H = im.bitmap.height;
     const name = path.basename(p, '.png');
@@ -57,6 +60,7 @@ function buildMeta(name, W, H) {
       const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
       for (const k of Object.keys(m.subMetas || {})) {
         const sm = m.subMetas[k];
+        if (NEAREST && sm.importer === 'texture') { sm.userData.minfilter = 'nearest'; sm.userData.magfilter = 'nearest'; }
         if (sm.importer !== 'sprite-frame') continue;
         Object.assign(sm.userData, { width: W, height: H, rawWidth: W, rawHeight: H });
         sm.userData.vertices = spriteVertices(W, H);
@@ -64,7 +68,7 @@ function buildMeta(name, W, H) {
       fs.writeFileSync(mp, JSON.stringify(m, null, 2));
       console.log(`  갱신 ${name}  ${W}x${H} (uuid 유지)`);
     } else {
-      fs.writeFileSync(mp, JSON.stringify(buildMeta(name, W, H), null, 2));
+      fs.writeFileSync(mp, JSON.stringify(buildMeta(name, W, H, NEAREST ? 'nearest' : 'linear'), null, 2));
       console.log(`  신규 ${name}  ${W}x${H}`);
     }
   }
