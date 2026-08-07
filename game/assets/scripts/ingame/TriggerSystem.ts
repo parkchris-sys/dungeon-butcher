@@ -76,6 +76,12 @@ interface RuntimeTrigger {
     timer: number;
     working: boolean;
     customers: TriggerNpc[];
+    /**
+     * 이 트리거에 쌓인 자원의 정렬 깊이 — **겹친 오브젝트보다 항상 앞**.
+     * 오브젝트 깊이는 플레이어 위치에 따라 앞으로 당겨질 수 있어(긴 오브젝트 정렬),
+     * 트리거 타일 중심 기준으로만 잡으면 오브젝트가 자원을 덮는다. 생성 시 1회 계산.
+     */
+    itemSortY: number;
 }
 
 /** 리소스 종류별 표시색 */
@@ -120,6 +126,7 @@ export class TriggerSystem {
             }
             this.byId.set(def.id, {
                 def, raw: [], cooked: [], money: [], timer: 0, working: false, customers: [],
+                itemSortY: this.itemSortYOf(def),
             });
         }
         this.validateLinks();
@@ -180,7 +187,7 @@ export class TriggerSystem {
         source.timer = 0;
         source.working = false;
         const start = this.itemPoint(source.def);
-        this.fly('CookedFood', start.x, start.y + 22, target, '#E7A33E', start.y - 1, () => {
+        this.fly('CookedFood', start.x, start.y + 22, target, '#E7A33E', source.itemSortY, () => {
             this.pushItem(target, target.cooked, 'CookedFood', '#E7A33E');
         });
     }
@@ -199,7 +206,7 @@ export class TriggerSystem {
         source.timer = TRANSFER_S;
         const start = this.itemPoint(source.def);
         this.flyToPoint('ServedFood', start.x, start.y + 22,
-            customer.node.position.x, customer.node.position.y + 70, '#E7A33E', start.y - 1, () => {
+            customer.node.position.x, customer.node.position.y + 70, '#E7A33E', source.itemSortY, () => {
                 customer.state = 'satisfied';
                 // 판매 즉시 골드 (결정 2026-08-07 재확정) — 정산대·회수위치를 거치지 않는다.
                 // "고기는 운반 대상이지만 돈은 아니다" (BIBLE §9-a 4). 표시는 "+N" 팝업(§10-a).
@@ -240,7 +247,7 @@ export class TriggerSystem {
                 t.timer = TRANSFER_S;
                 const start = this.itemPoint(t.def);
                 const p = this.host.playerNode().position;
-                this.flyToPoint('Res_money', start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {
+                this.flyToPoint('Res_money', start.x, start.y + 22, p.x, p.y + 70, color, t.itemSortY, () => {
                     this.host.addGold(1);
                 });
                 return;
@@ -251,7 +258,7 @@ export class TriggerSystem {
             t.timer = TRANSFER_S;
             const start = this.itemPoint(t.def);
             const p = this.host.playerNode().position;
-            this.flyToPoint(`Res_${kind}`, start.x, start.y + 22, p.x, p.y + 70, color, start.y - 1, () => {});
+            this.flyToPoint(`Res_${kind}`, start.x, start.y + 22, p.x, p.y + 70, color, t.itemSortY, () => {});
         }
     }
 
@@ -457,9 +464,28 @@ export class TriggerSystem {
      * ⚠ 정렬 깊이는 **offset을 뺀 타일 중심** 기준으로 유지한다 — 위로 올린 만큼 앞으로
      *   튀어나오면 안 되기 때문(오브젝트보다 살짝 앞이면 충분).
      */
-    private itemPoint(def: MapTriggerDef): { x: number; y: number; sortY: number } {
+    private itemPoint(def: MapTriggerDef): { x: number; y: number } {
         const c = this.center(def);
-        return { x: c.x + (def.itemOffX ?? 0), y: c.y + (def.itemOffY ?? 0), sortY: c.y - 1 };
+        return { x: c.x + (def.itemOffX ?? 0), y: c.y + (def.itemOffY ?? 0) };
+    }
+
+    /**
+     * 쌓인 자원의 정렬 깊이 — 트리거 타일과 **겹친 오브젝트**들의 **가장 앞쪽 깊이보다 1 앞**.
+     *
+     * 왜 필요한가: 오브젝트 깊이는 매 프레임 플레이어 위치로 정해져(긴 오브젝트 앞뒤 정렬)
+     * 발자국의 앞 칸까지 당겨질 수 있다. 자원을 트리거 중심 기준으로만 잡으면 그때 오브젝트가
+     * 자원을 덮어 버린다. 자원은 오브젝트 **표면에 놓인 것**이므로 그 오브젝트보다 항상 앞이 맞다.
+     * 플레이어는 오브젝트 앞 칸에 서면 여전히 자원보다 앞에 그려진다(깊이가 더 작으므로).
+     */
+    private itemSortYOf(def: MapTriggerDef): number {
+        let y = this.center(def).y;
+        for (const o of this.objects) {
+            if (o.floorDecal) continue; // 바닥 데칼은 항상 뒤라 경쟁하지 않는다
+            const overlap = def.gx <= o.gx + o.w - 1 && o.gx <= def.gx + def.w - 1
+                && def.gy <= o.gy + o.h - 1 && o.gy <= def.gy + def.h - 1;
+            if (overlap) y = Math.min(y, isoY(o.gx, o.gy));
+        }
+        return y - 1;
     }
 
     private pushItem(owner: RuntimeTrigger, stack: Node[], name: string, color: string) {
@@ -468,7 +494,7 @@ export class TriggerSystem {
             28, 16, this.host.ui.color(color));
         node.setPosition(center.x, center.y + 12 + stack.length * 10, 0);
         // 트리거 타일 위 아이템은 링크된 영역 오브젝트보다 앞에 그려지게 — 정렬 깊이를 타일보다 살짝 앞으로
-        (node as unknown as { __sortY: number }).__sortY = center.sortY;
+        (node as unknown as { __sortY: number }).__sortY = owner.itemSortY;
         stack.push(node);
     }
 
