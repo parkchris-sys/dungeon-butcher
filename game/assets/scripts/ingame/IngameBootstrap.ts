@@ -15,7 +15,7 @@ import { CombatSystem } from './CombatSystem';
 import { TriggerNpc, TriggerSystem, UPGRADE_SPEC } from './TriggerSystem';
 import { CustomerSystem, NpcTemplate } from './CustomerSystem';
 import { AnimData, animKey, parseAnimDataJson } from './AnimData';
-import { SpriteAnimator } from './SpriteAnimator';
+import { SpriteAnimator, pixelFitHeight } from './SpriteAnimator';
 import { Dir8, DIR8_MIRROR, dirFromScreen, sideOf } from './Facing8';
 
 const { ccclass, property } = _decorator;
@@ -1586,13 +1586,16 @@ export class IngameBootstrap extends Component {
         // 아트가 있으면 원화(높이 c 기준, 폭은 원본 비율), 없으면 흰 박스 폴백
         const art = this.staticArt();
         let body: Node;
+        let h = c;
         if (art) {
-            const w = c * (art.rect.width / art.rect.height);
-            body = this.addSprite('Body', p, art, w, c, this.color('#FFFFFF'));
+            // 픽셀아트는 정수 배율로만 키운다 (BIBLE §5) — 61×60 원화면 2배=120px
+            h = pixelFitHeight(art.originalSize.height || art.rect.height, c);
+            const w = h * (art.rect.width / art.rect.height);
+            body = this.addSprite('Body', p, art, w, h, this.color('#FFFFFF'));
         } else {
             body = this.addSprite('Body', p, this.squareFrame(), c, c, this.color('#FFFFFF'));
         }
-        body.setPosition(0, c / 2, 0); // 발이 타일 중심에 닿게
+        body.setPosition(0, h / 2, 0); // 발이 타일 중심에 닿게
         this.playerSprite = body.getComponent(Sprite);
 
         // 애니메이터 — 클립(player_idle/player_walk/player_attack)이 있으면 그쪽이 스프라이트를 굴린다.
@@ -1601,7 +1604,7 @@ export class IngameBootstrap extends Component {
             (k, n) => this.animFrameOf(k, n),
             (ev) => { if (ev === 'hit') this.combat?.triggerAttackHit(); });
         const ut = body.getComponent(UITransform);
-        this.playerAnim.setBase(0, c / 2, ut ? ut.contentSize.width : c, ut ? ut.contentSize.height : c);
+        this.playerAnim.setBase(0, h / 2, ut ? ut.contentSize.width : c, ut ? ut.contentSize.height : h);
         // 클립 프레임은 여유 패딩이 붙어 원화와 비율이 다르다 → 클립이 바뀔 때마다 높이 c 기준으로 다시 맞춘다
         this.playerAnim.setFitHeight(c, this.color('#FFFFFF'));
         return p;

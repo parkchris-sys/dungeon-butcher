@@ -13,6 +13,19 @@ import { AnimClipDef, AnimData, AnimFrameDef } from './AnimData';
  * · event(타격 타이밍 등 마커). 편집은 애니메이션 편집 씬(animedit)에서.
  */
 
+/**
+ * 픽셀아트 정수 배율 — 원화를 키울 때는 **정수 배로만** 키운다 (BIBLE §5 픽셀아트).
+ *
+ * 예) 원화 60px를 128px로 띄우면 2.13배라 어떤 픽셀은 2px, 어떤 픽셀은 3px로 그려져
+ *     격자가 들쭉날쭉해진다(픽셀아트에서 가장 눈에 띄는 결함). 2배=120px로 내려 맞춘다.
+ * 원화가 표시 크기보다 **큰 경우(축소)는 건드리지 않는다** — 축소는 정수배 개념이 없다.
+ * @param rawH 원화 높이(트림 전) · @param wantH 원하는 표시 높이
+ */
+export function pixelFitHeight(rawH: number, wantH: number): number {
+    if (rawH <= 0 || rawH > wantH) return wantH;
+    return rawH * Math.max(1, Math.round(wantH / rawH));
+}
+
 /** 애니메이션 대상 1개 — 개체(몬스터/손님/플레이어)마다 하나 */
 export class SpriteAnimator {
     private clip: AnimClipDef | null = null;
@@ -64,7 +77,7 @@ export class SpriteAnimator {
         if (this.fitHeight <= 0) return;
         const sf = this.frameOf(this.clipKey, firstImg);
         if (!sf) return;
-        const h = this.fitHeight;
+        const h = pixelFitHeight(sf.originalSize.height || sf.rect.height, this.fitHeight);
         const w = h * (sf.rect.width / Math.max(1, sf.rect.height));
         this.baseW = w; this.baseH = h;
         this.baseY = h / 2; // 발이 타일 중심에 닿게 (앵커 중앙)
@@ -96,7 +109,8 @@ export class SpriteAnimator {
         // 원본 이미지 px → 표시 px. fitHeight를 쓰면 그 비율, 아니면 baseH/원본 높이
         const src = this.frameOf(this.clipKey, this.clip?.frames[this.frameIdx].img ?? 1);
         const rawH = src ? (src.originalSize.height || src.rect.height) : 0;
-        const s = rawH > 0 ? (this.fitHeight > 0 ? this.fitHeight : this.baseH) / rawH : 1;
+        // baseH = applyFit이 정수 배율로 확정한 **실제 표시 높이**
+        const s = rawH > 0 && this.baseH > 0 ? this.baseH / rawH : 1;
         return { x: (this.mirrored ? -a.x : a.x) * s, y: a.y * s };
     }
 
