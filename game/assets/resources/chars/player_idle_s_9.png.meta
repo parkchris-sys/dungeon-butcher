@@ -8,11 +8,11 @@
     ".png"
   ],
   "subMetas": {
-    "aa626": {
+    "6c48a": {
       "importer": "texture",
-      "uuid": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@aa626",
+      "uuid": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@6c48a",
       "displayName": "player_idle_s_9",
-      "id": "aa626",
+      "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
@@ -32,21 +32,21 @@
       ],
       "subMetas": {}
     },
-    "b4f7c": {
+    "f9941": {
       "importer": "sprite-frame",
-      "uuid": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@b4f7c",
+      "uuid": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@f9941",
       "displayName": "player_idle_s_9",
-      "id": "b4f7c",
+      "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 0,
-        "offsetY": 0,
-        "trimX": 0,
-        "trimY": 0,
-        "width": 173,
-        "height": 256,
+        "offsetX": 0.5,
+        "offsetY": -1.5,
+        "trimX": 10,
+        "trimY": 3,
+        "width": 154,
+        "height": 253,
         "rawWidth": 173,
         "rawHeight": 256,
         "borderTop": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -86.5,
-            -128,
+            -77,
+            -126.5,
             0,
-            86.5,
-            -128,
+            77,
+            -126.5,
             0,
-            -86.5,
-            128,
+            -77,
+            126.5,
             0,
-            86.5,
-            128,
+            77,
+            126.5,
             0
           ],
           "indexes": [
@@ -82,38 +82,38 @@
             3
           ],
           "uv": [
+            10,
+            253,
+            164,
+            253,
+            10,
             0,
-            256,
-            173,
-            256,
-            0,
-            0,
-            173,
+            164,
             0
           ],
           "nuv": [
+            0.057803468208092484,
             0,
+            0.9479768786127167,
             0,
-            1,
-            0,
-            0,
-            1,
-            1,
-            1
+            0.057803468208092484,
+            0.98828125,
+            0.9479768786127167,
+            0.98828125
           ],
           "minPos": [
-            -86.5,
-            -128,
+            -77,
+            -126.5,
             0
           ],
           "maxPos": [
-            86.5,
-            128,
+            77,
+            126.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@aa626",
+        "imageUuidOrDatabaseUri": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@aa626"
+    "redirect": "8b1f58e7-f19e-4929-8bdc-88b9142dcab6@6c48a"
   }
 }
