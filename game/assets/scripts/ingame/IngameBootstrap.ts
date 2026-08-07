@@ -100,7 +100,13 @@ export class IngameBootstrap extends Component {
     private triggerNpcs: TriggerNpc[] = []; // 손님(customer) NPC만 — 트리거·이동 시스템이 공유
     private npcTemplates: NpcTemplate[] = []; // 배치된 손님 NPC = 스폰 시 복제할 템플릿
     private hpBarRoot: Node | null = null;       // 캐릭터 머리 위 HP바 (사냥지대 한정)
-    private goldPopups: { node: Node; t: number }[] = []; // "+N" 골드 팝업
+    /** 떠오르는 월드 팝업 (골드 "+N" · 데미지 숫자) — baseY 기준 상승 + 배율 이징 */
+    private popups: {
+        node: Node; t: number; life: number; baseY: number; rise: number;
+        s0: number; s1: number; fadeAt: number; // fadeAt: 페이드 시작 진행률(0~1)
+    }[] = [];
+    /** 데미지 이미지 폰트 — 문자('0'~'9') → 글리프 (resources/fonts/dmg_*.png) */
+    private dmgFrames = new Map<string, SpriteFrame>();
     private goldCount = 0;
     private hpFill: Node | null = null;
     private playerFlashT = 0;
@@ -176,7 +182,7 @@ export class IngameBootstrap extends Component {
      * (예: 1_auto.png → img 1). 이름 부분은 자유라 아트 교체 시 코드 수정 불필요.
      */
     private loadZoneTextures(done: () => void) {
-        let pending = 7; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 + 애니메이션(클립·프레임)
+        let pending = 8; // 플레이어 잡 + 바닥·오브젝트·유닛·기분 폴더 + 애니메이션(클립·프레임) + 데미지 폰트
 
         const playerJobs: [string, (f: SpriteFrame) => void][] = [
             ['chars/player_left',  f => { this.playerFrames.left = f; }],
@@ -215,6 +221,16 @@ export class IngameBootstrap extends Component {
         // 애니메이션 클립 정의 (편집 씬이 내보낸 JSON) — 없으면 정적 이미지 폴백
         resources.load('anim/animdata', JsonAsset, (err, asset) => {
             if (!err && asset) this.animData = parseAnimDataJson(asset.json);
+            if (--pending === 0) done();
+        });
+        // 데미지 이미지 폰트 — `fonts/dmg_{0~9}.png` (없으면 시스템 폰트 라벨로 폴백)
+        resources.loadDir('fonts', SpriteFrame, (err, frames) => {
+            if (!err && frames) {
+                for (const f of frames) {
+                    const m = f.name.match(/^dmg_(\d)$/);
+                    if (m) this.dmgFrames.set(m[1], f);
+                }
+            }
             if (--pending === 0) done();
         });
         // 애니메이션 프레임 — `chars/{종류}_{상태}_{n}.png` (ASSET_LIST 규약)
@@ -815,43 +831,95 @@ export class IngameBootstrap extends Component {
     /** 골드 획득 "+N" 팝업 — 상시 카운터 대신 순간 연출 (BIBLE §10-a) */
     private showGoldGain(amount: number) {
         const p = this.player.position;
-        this.showFloatText(`+${amount}`, p.x, p.y + IngameBootstrap.CHAR_PX, '#F0B429', 44);
+        const node = this.makeNode('GoldGain', this.entities);
+        node.setPosition(p.x, p.y + IngameBootstrap.CHAR_PX, 0);
+        (node as unknown as { __sortY: number }).__sortY = -1e6; // 팝업은 최전면
+        const lb = node.addComponent(Label);
+        lb.string = `+${amount}`;
+        lb.fontSize = 44;
+        lb.isBold = true;
+        lb.cacheMode = Label.CacheMode.BITMAP; // 실기기 글리프 겹침 방지
+        lb.color = this.color('#F0B429');
+        this.popups.push({ node, t: 0, life: 0.9, baseY: node.position.y, rise: 54, s0: 1, s1: 1, fadeAt: 0 });
+    }
+
+    /** 데미지 숫자 높이(px) · 상승 거리 · 시작/끝 배율 · 지속시간 — 전부 (임의) */
+    private static readonly DMG_PX = 40;
+    private static readonly DMG_RISE = 95;
+    private static readonly DMG_S0 = 0.45;
+    private static readonly DMG_S1 = 1.35;
+    private static readonly DMG_LIFE = 0.6;
+
+    /**
+     * 데미지 표기 — **이미지 폰트**(resources/fonts/dmg_*)로 숫자만 찍는다 (요청 2026-08-07).
+     * 연출: 피격 지점에서 위로 떠오르며 **아웃 이징으로 빡 커진다**(리니어면 맛이 안 산다).
+     * 폰트가 아직 없으면 시스템 폰트 라벨로 폴백.
+     */
+    private showDamage(amount: number, gx: number, gy: number) {
+        const text = `${amount}`; // 부호 없이 숫자만
+        const x = isoX(gx, gy);
+        const y = isoY(gx, gy) + IngameBootstrap.MONSTER_PX * 0.55; // 피격될 법한 높이(몸통)
+        const node = this.makeNode('Damage', this.entities);
+        node.setPosition(x, y, 0);
+        (node as unknown as { __sortY: number }).__sortY = -1e6;
+
+        const h = IngameBootstrap.DMG_PX;
+        if (this.dmgFrames.size > 0) {
+            // 글리프 캔버스는 전부 동일하지만 임포터가 여백을 트림하므로
+            // **originalSize·offset 기준**으로 배치해야 자릿수·베이스라인이 맞는다
+            let advance = 0;
+            const placed: { frame: SpriteFrame; s: number }[] = [];
+            for (const ch of text) {
+                const frame = this.dmgFrames.get(ch);
+                if (frame) placed.push({ frame, s: h / (frame.originalSize.height || frame.rect.height) });
+            }
+            const widths = placed.map(p => p.frame.originalSize.width * p.s * 0.88); // 자간 (임의)
+            advance = widths.reduce((a, b) => a + b, 0);
+            let cx = -advance / 2;
+            placed.forEach((p, i) => {
+                const w = p.frame.rect.width * p.s, gh = p.frame.rect.height * p.s;
+                const g = this.addSprite(`g${i}`, node, p.frame, w, gh, this.color('#FFFFFF'));
+                g.setPosition(cx + widths[i] / 2 + p.frame.offset.x * p.s, p.frame.offset.y * p.s, 0);
+                cx += widths[i];
+            });
+        } else {
+            const lb = node.addComponent(Label);
+            lb.string = text;
+            lb.fontSize = h;
+            lb.isBold = true;
+            lb.cacheMode = Label.CacheMode.BITMAP;
+            lb.color = this.color('#E8342B');
+        }
+        node.setScale(IngameBootstrap.DMG_S0, IngameBootstrap.DMG_S0, 1);
+        this.popups.push({
+            node, t: 0, life: IngameBootstrap.DMG_LIFE, baseY: y, rise: IngameBootstrap.DMG_RISE,
+            s0: IngameBootstrap.DMG_S0, s1: IngameBootstrap.DMG_S1, fadeAt: 0.6,
+        });
     }
 
     /**
-     * 데미지 표기 — 맞은 몬스터 머리 위에 뜨는 "-N" (요청 2026-08-07).
-     * 상시 HUD가 아니라 월드-인 팝업이므로 §10-a("상시 코너 HUD 없음")와 충돌하지 않는다.
-     * ⚠ 색·크기·상승 연출은 골드 팝업과 같은 규격을 쓴다 (임의).
+     * 떠오르는 팝업 갱신 (골드 "+N" · 데미지 숫자 공용).
+     * 이징은 둘 다 **아웃 계열** — 처음에 확 튀고 뒤로 갈수록 느려져야 타격감이 산다.
+     *  · 위치: out-sine (부드럽게 떠오름)  · 배율: out-quart (빡 커짐)
      */
-    private showDamage(amount: number, gx: number, gy: number) {
-        this.showFloatText(`-${amount}`, isoX(gx, gy), isoY(gx, gy) + IngameBootstrap.MONSTER_PX,
-            '#F5F0E6', 36);
-    }
-
-    /** 위로 떠오르며 사라지는 월드 텍스트 (골드·데미지 공용) */
-    private showFloatText(text: string, x: number, y: number, hex: string, fontSize: number) {
-        const node = this.makeNode('FloatText', this.entities);
-        node.setPosition(x, y, 0);
-        (node as unknown as { __sortY: number }).__sortY = -1e6; // 팝업은 최전면
-        const lb = node.addComponent(Label);
-        lb.string = text;
-        lb.fontSize = fontSize;
-        lb.isBold = true;
-        lb.cacheMode = Label.CacheMode.BITMAP; // 실기기 글리프 겹침 방지
-        lb.color = this.color(hex);
-        this.goldPopups.push({ node, t: 0 });
-    }
-
-    private updateGoldPopups(dt: number) {
-        for (let i = this.goldPopups.length - 1; i >= 0; i--) {
-            const g = this.goldPopups[i];
+    private updatePopups(dt: number) {
+        for (let i = this.popups.length - 1; i >= 0; i--) {
+            const g = this.popups[i];
             g.t += dt;
-            g.node.setPosition(g.node.position.x, g.node.position.y + 60 * dt, 0); // 위로 떠오름
+            const p = Math.min(1, g.t / g.life);
+            const easeOutSine = Math.sin((p * Math.PI) / 2);
+            const easeOutQuart = 1 - Math.pow(1 - p, 4);
+            g.node.setPosition(g.node.position.x, g.baseY + g.rise * easeOutSine, 0);
+            if (g.s0 !== g.s1) {
+                const s = g.s0 + (g.s1 - g.s0) * easeOutQuart;
+                g.node.setScale(s, s, 1);
+            }
             const op = g.node.getComponent(UIOpacity) ?? g.node.addComponent(UIOpacity);
-            op.opacity = 255 * Math.max(0, 1 - g.t / 0.9);
-            if (g.t >= 0.9) {
+            const fade = g.fadeAt >= 1 ? 0 : Math.max(0, (p - g.fadeAt) / (1 - g.fadeAt));
+            op.opacity = 255 * (1 - fade);
+            if (p >= 1) {
                 g.node.destroy();
-                this.goldPopups.splice(i, 1);
+                this.popups.splice(i, 1);
             }
         }
     }
@@ -1083,7 +1151,7 @@ export class IngameBootstrap extends Component {
         // 가상화 타일 갱신 (중심 타일이 바뀔 때만 내부 재계산)
         if (this.tileView) this.tileView.update(this.pgx, this.pgy, this.zoom);
         this.updateFloorCulling();
-        this.updateGoldPopups(dt);
+        this.updatePopups(dt);
         this.updateGatePopup();    // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
         this.updateUpgradePopup(); // 강화 발판 위면 강화 팝업 (§10-b)
 
