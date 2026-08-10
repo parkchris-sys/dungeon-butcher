@@ -89,16 +89,6 @@ export class IngameBootstrap extends Component {
     private bannerFade: UIOpacity | null = null;
     private bannerTimer = 0;
 
-    /**
-     * 개발용 FPS 표시 — 실기 성능 확인용 (기기 dumpsys가 Cocos 서피스를 못 잡아 화면 표기로 재는 게 확실).
-     * 0.5초마다 갱신하고 그 구간의 **최저 FPS**도 같이 보여준다(순간 끊김이 평균에 묻히지 않게).
-     */
-    private static readonly SHOW_FPS = true;
-    private fpsLabel: Label | null = null;
-    private fpsFrames = 0;
-    private fpsElapsed = 0;
-    private fpsWorst = 999;
-
     // 줌 조절 패널 (실기기 확정용 — 값 확정되면 제거)
     private zoomPanel: Node | null = null;
     private zoomLabel: Label | null = null;
@@ -395,7 +385,6 @@ export class IngameBootstrap extends Component {
         this.buildZoneBanner();
         this.buildJoystick();
         this.buildZoomPanel();
-        this.buildFpsLabel();
         this.buildPlayerHpBar(); // 상시 코너 HUD 없음 — HP바만 캐릭터 머리 위 (BIBLE §10-a)
         this.detectZone();
         this.sortEntities();
@@ -1061,39 +1050,6 @@ export class IngameBootstrap extends Component {
     }
 
     // ── 줌 조절 패널 (우상단 −/＋ 버튼 + 현재값 — 실기기 확정용) ──
-    /** FPS 라벨 (좌상단) — SHOW_FPS가 켜져 있을 때만 */
-    private buildFpsLabel() {
-        if (!IngameBootstrap.SHOW_FPS) return;
-        const node = this.makeNode('FpsLabel', this.node);
-        const w = node.addComponent(Widget);
-        w.isAlignTop = true; w.top = 84;
-        w.isAlignLeft = true; w.left = 40;
-        // 앵커를 왼쪽으로 — 기본 중앙 앵커면 글자가 길어질 때 화면 밖으로 삐져나간다
-        const ut = node.getComponent(UITransform) ?? node.addComponent(UITransform);
-        ut.setAnchorPoint(0, 0.5);
-        const lb = node.addComponent(Label);
-        lb.horizontalAlign = Label.HorizontalAlign.LEFT;
-        lb.fontSize = 34;
-        lb.isBold = true;
-        lb.cacheMode = Label.CacheMode.BITMAP;
-        lb.color = this.color('#7CFC9A');
-        lb.string = 'FPS --';
-        this.fpsLabel = lb;
-    }
-
-    /** 프레임 수를 세어 0.5초마다 표기 갱신 (평균 + 구간 최저) */
-    private updateFps(dt: number) {
-        if (!this.fpsLabel) return;
-        this.fpsFrames++;
-        this.fpsElapsed += dt;
-        if (dt > 0) this.fpsWorst = Math.min(this.fpsWorst, 1 / dt);
-        if (this.fpsElapsed < 0.5) return;
-        const avg = this.fpsFrames / this.fpsElapsed;
-        const mobs = this.entities ? this.entities.children.length : 0;
-        this.fpsLabel.string = `FPS ${avg.toFixed(0)} (최저 ${this.fpsWorst.toFixed(0)}) · 개체 ${mobs}`;
-        this.fpsFrames = 0; this.fpsElapsed = 0; this.fpsWorst = 999;
-    }
-
     private buildZoomPanel() {
         const panel = this.makeNode('ZoomPanel', this.node);
         this.zoomPanel = panel;
@@ -1286,7 +1242,6 @@ export class IngameBootstrap extends Component {
         this.updateFloorCulling();
         this.updateCovers(dt);
         this.updatePopups(dt);
-        this.updateFps(dt);
         this.updateGatePopup();    // 문 앞이면 해금 팝업 자동 열림 / 벗어나면 자동 닫힘 (§10-b)
         this.updateUpgradePopup(); // 강화 발판 위면 강화 팝업 (§10-b)
 

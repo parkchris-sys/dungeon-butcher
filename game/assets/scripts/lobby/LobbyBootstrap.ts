@@ -1,7 +1,7 @@
 import {
     _decorator, Component, Node, Sprite, SpriteFrame, Texture2D, ImageAsset,
     UITransform, Color, Layers, director, Canvas, Camera, DirectionalLight,
-    view, ResolutionPolicy, Label, Widget, sys, resources, game,
+    view, ResolutionPolicy, Label, Widget, sys, resources, game, UIOpacity,
 } from 'cc';
 
 const { ccclass, property } = _decorator;
@@ -30,9 +30,24 @@ export class LobbyBootstrap extends Component {
     /** 인트로 컷 유지 시간(초) — 기획 자막 확정 전 (임의) */
     private static readonly CUT_S = 3.0;
 
+    // ── 회사 로고 스플래시 ──
+    /** 로고 유지 시간(초) — 페이드 시작 전까지 (임의) */
+    private static readonly SPLASH_HOLD_S = 1.6;
+    /** 페이드 아웃 시간(초) (임의) */
+    private static readonly SPLASH_FADE_S = 0.4;
+    /** 화면 폭 대비 로고 폭 — 세로 화면에서 답답하지 않은 정도 (임의) */
+    private static readonly SPLASH_W_RATIO = 0.62;
+
     private root!: Node;
     private introFrames: (SpriteFrame | null)[] = [];
     private bgFrame: SpriteFrame | null = null;
+    private logoFrame: SpriteFrame | null = null;
+
+    // 스플래시 상태
+    private splashRoot: Node | null = null;
+    private splashFade: UIOpacity | null = null;
+    private splashTimer = 0;
+    private splashAfter: (() => void) | null = null;
 
     // 인트로 상태
     private introRoot: Node | null = null;
@@ -56,14 +71,17 @@ export class LobbyBootstrap extends Component {
 
         // 아트가 있으면 쓰고, 없으면 플레이스홀더 (둘 다 조용히 처리)
         this.loadArt(() => {
-            if (this.introSeen()) this.buildLobby();
-            else this.startIntro();
+            // 회사 로고 → 인트로(최초 1회) → 로비. 로고 파일이 없으면 스플래시는 건너뛴다
+            this.startSplash(() => {
+                if (this.introSeen()) this.buildLobby();
+                else this.startIntro();
+            });
         });
     }
 
     // ── 아트 로드 (없으면 null — 플레이스홀더로 동작) ──
     private loadArt(done: () => void) {
-        let pending = 4; // bg + 인트로 3컷
+        let pending = 5; // bg + 인트로 3컷 + 회사 로고
         const load = (path: string, assign: (f: SpriteFrame | null) => void) => {
             resources.load(`${path}/texture`, Texture2D, (err, tex) => {
                 if (!err && tex) {
@@ -76,10 +94,60 @@ export class LobbyBootstrap extends Component {
             });
         };
         load('lobby/bg', f => { this.bgFrame = f; });
+        load('lobby/splash_logo', f => { this.logoFrame = f; });
         this.introFrames = [null, null, null];
         for (let i = 0; i < 3; i++) {
             load(`lobby/intro_${i + 1}`, f => { this.introFrames[i] = f; });
         }
+    }
+
+    // ── 회사 로고 스플래시 ──
+    /**
+     * resources/lobby/splash_logo.png 를 화면 중앙에 띄운다. 파일이 없으면 **조용히 건너뛴다**
+     * (아트 반입 전에도 부팅이 막히지 않게 — 로비 배경·인트로와 같은 규칙).
+     * 원본 비율을 유지해서 폭 기준으로만 맞추므로 정사각·가로형 어느 쪽을 줘도 안 찌그러진다.
+     * 아무 데나 누르면 즉시 넘어간다.
+     */
+    private startSplash(after: () => void) {
+        if (!this.logoFrame) { after(); return; }
+        this.splashAfter = after;
+
+        const root = this.makeNode('Splash', this.root);
+        const rw = root.addComponent(Widget);
+        rw.isAlignTop = rw.isAlignBottom = rw.isAlignLeft = rw.isAlignRight = true;
+        rw.top = rw.bottom = rw.left = rw.right = 0;
+        this.splashFade = root.addComponent(UIOpacity);
+
+        // 배경 — 로고 원본이 검정 바탕이라 화면도 검정으로 깔아 이음매가 안 보이게
+        const bg = this.addSprite('SplashBg', root, this.whiteFrame(), 1080, 1920, this.color('#000000'));
+        const bw = bg.addComponent(Widget);
+        bw.isAlignTop = bw.isAlignBottom = bw.isAlignLeft = bw.isAlignRight = true;
+        bw.top = bw.bottom = bw.left = bw.right = 0;
+
+        // 로고 — 화면 정중앙, 원본 비율 유지
+        const r = this.logoFrame.rect;
+        const w = 1080 * LobbyBootstrap.SPLASH_W_RATIO;
+        const h = r.width > 0 ? w * (r.height / r.width) : w;
+        const logo = this.addSprite('SplashLogo', root, this.logoFrame, w, h, this.color('#FFFFFF'));
+        const lw = logo.addComponent(Widget);
+        lw.isAlignHorizontalCenter = true;
+        lw.isAlignVerticalCenter = true;
+        lw.horizontalCenter = 0;
+        lw.verticalCenter = 0;
+
+        this.splashTimer = LobbyBootstrap.SPLASH_HOLD_S + LobbyBootstrap.SPLASH_FADE_S;
+        bg.on(Node.EventType.TOUCH_END, () => this.endSplash());
+        this.splashRoot = root;
+    }
+
+    private endSplash() {
+        if (!this.splashRoot) return;
+        this.splashRoot.destroy();
+        this.splashRoot = null;
+        this.splashFade = null;
+        const after = this.splashAfter;
+        this.splashAfter = null;
+        after?.();
     }
 
     // ── 인트로 (3컷 + 스킵) ──
@@ -152,6 +220,15 @@ export class LobbyBootstrap extends Component {
     }
 
     update(dt: number) {
+        if (this.splashRoot) {
+            this.splashTimer -= dt;
+            const fade = LobbyBootstrap.SPLASH_FADE_S;
+            if (this.splashFade && this.splashTimer < fade) {
+                this.splashFade.opacity = Math.max(0, Math.round(255 * this.splashTimer / fade));
+            }
+            if (this.splashTimer <= 0) this.endSplash();
+            return;
+        }
         if (!this.introRunning) return;
         this.introTimer -= dt;
         if (this.introTimer <= 0) this.nextCut();

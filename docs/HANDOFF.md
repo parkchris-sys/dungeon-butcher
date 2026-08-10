@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-10 | 개발→개발/아트 | 회사 로고 스플래시 + 앱 아이콘 + Cocos 기본 스플래시 제거 (FPS 표기 삭제)
+
+- **로고 스플래시**: 부팅 → 회사 로고(검정 배경, 화면 정중앙) → 인트로(최초 1회) → 로비.
+  파일 `game/assets/resources/lobby/splash_logo.png`. 없으면 조용히 건너뛴다(로비 배경·인트로와 같은 규칙).
+  유지 1.6초 + 페이드 0.4초, 폭은 화면의 62%, 아무 데나 누르면 스킵 — **전부 `(임의)`**, 기획 확정 필요.
+- **Cocos 기본 스플래시 제거**: 빌드 옵션 **`useSplashScreen=false`**. 안 붙이면 Cocos 로고가 2초 다시 나온다.
+  (엔진은 `totalTime <= 0`이면 스플래시를 건너뛴다 — 이 옵션이 settings.json의 totalTime을 0으로 만든다.)
+  프로젝트 설정 파일로는 안 걸리므로 **빌드 명령에 매번 들어가야 한다**:
+  ```
+  CocosCreator.exe --project game --build "platform=android;debug=false;useSplashScreen=false;startScene=<lobby uuid>"
+  ```
+- **앱 아이콘**: 원본 2048 → 48/72/96/144/192 5종 생성 → `game/native/engine/android/res/mipmap-*/ic_launcher.png`.
+  도구 `tools/make_icon.js` (면적 평균 축소 + premultiply — 투명 가장자리에 검은 띠가 생기지 않게).
+  ⚠ **`game/native/`는 .gitignore라 아이콘이 저장소에 안 들어간다.** 새로 클론하거나 native를 다시 만들면
+  `node tools/make_icon.js art_incoming/2026-08-10_app_icon/icon.png` 를 다시 돌려야 기본 Cocos 아이콘으로 안 돌아간다.
+  원본은 `art_incoming/2026-08-10_app_icon/`에 보관.
+- 아이콘 원본이 **키아트라 작은 크기에서 글자가 안 읽힌다** (48px에서 완전히 뭉개짐). 지금은 그대로 적용했으나
+  아이콘 전용으로 **글자 없는 심볼 1개**를 뽑는 걸 권장 — 아트 파트 검토 요청.
+- FPS 표기(8/7 추가)는 측정 끝나 **제거**했다. 필요하면 커밋 bb5fe28에서 되살릴 수 있다.
+- 실기 확인: 검정 → 회사 로고 → 로비. Cocos 로고 안 나옴.
+
+---
+
 ## 2026-08-07 | 개발→개발/기획 | 실기 프레임 측정 — 60fps 유지 확인 + 화면 FPS 표시 추가
 
 - 왜 화면 표시로 재나: 이 기기는 `dumpsys gfxinfo`가 Cocos 서피스를 못 잡아(2프레임만 집계)
